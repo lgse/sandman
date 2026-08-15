@@ -1,0 +1,10 @@
+{
+  "name": "sandman",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Set when your screen rests and your computer sleeps.",
+  "scripts": {
+    "test": "node --test && python3 -m unittest discover -s test -p 'test_*.py'"
+  },
+  "license": "MIT"
+}

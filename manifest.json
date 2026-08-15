@@ -1,0 +1,25 @@
+{
+  "schemaVersion": 1,
+  "id": "lgse.sandman",
+  "name": "Sandman",
+  "version": "0.1.0",
+  "author": "Pierre Berube",
+  "license": "MIT",
+  "description": "Set when your screen rests and your computer sleeps.",
+  "kinds": [
+    "service",
+    "bar-widget"
+  ],
+  "keepLoaded": true,
+  "entryPoints": {
+    "service": "Service.qml",
+    "barWidget": "BarWidget.qml"
+  },
+  "barWidget": {
+    "displayName": "Sandman",
+    "description": "Set screensaver and sleep timers",
+    "category": "System",
+    "allowMultiple": false,
+    "defaultSection": "right"
+  }
+}

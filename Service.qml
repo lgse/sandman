@@ -1,5 +1,6 @@
 import QtQuick
 import Quickshell
+import Quickshell.Hyprland
 import Quickshell.Io
 import Quickshell.Wayland
 import "Model.js" as Model
@@ -12,12 +13,18 @@ Item {
   property bool saving: false
   property string lastError: ""
   property bool suspendPending: false
+  property bool idleCycleRunning: false
+  property var screensaverWindows: ({})
+  property int screensaverWindowCount: 0
 
   readonly property string home: Quickshell.env("HOME")
   readonly property string configPath: home + "/.config/omarchy/sandman.json"
+  readonly property string screensaverClass: "org.omarchy.screensaver"
   readonly property int screensaverSeconds: Model.normalizedSeconds(configState.screensaver, 150, false)
   readonly property int sleepSeconds: Model.normalizedSeconds(configState.sleep, 0, true)
   readonly property bool sleepEnabled: sleepSeconds > 0
+  readonly property int firstIdleSeconds: sleepEnabled ? Math.min(screensaverSeconds, sleepSeconds) : 1
+  readonly property int sleepDelaySeconds: sleepEnabled ? Math.max(0, sleepSeconds - firstIdleSeconds) : 0
   readonly property string helperPath: {
     var url = String(Qt.resolvedUrl("sandman.py"))
     return decodeURIComponent(url.indexOf("file://") === 0 ? url.substring(7) : url)
@@ -44,12 +51,80 @@ Item {
     configFile.reload()
   }
 
+  function resetScreensaverWindows() {
+    root.screensaverWindows = ({})
+    root.screensaverWindowCount = 0
+  }
+
+  function setScreensaverWindow(address, visible) {
+    var key = String(address || "")
+    if (!key) return
+    var next = Object.assign({}, root.screensaverWindows)
+    if (visible) next[key] = true
+    else delete next[key]
+    root.screensaverWindows = next
+    root.screensaverWindowCount = Object.keys(next).length
+  }
+
+  function eventParts(event, count) {
+    try {
+      if (event && event.parse) return event.parse(count)
+    } catch (error) {
+    }
+    return String(event && event.data ? event.data : "").split(",")
+  }
+
+  function handleHyprlandEvent(event) {
+    var name = String(event && event.name ? event.name : "")
+    var parts = eventParts(event, name === "openwindow" ? 4 : 1)
+    if (name === "openwindow" && String(parts[2] || "") === root.screensaverClass) {
+      setScreensaverWindow(parts[0], true)
+      screensaverGrace.stop()
+    } else if (name === "closewindow" && root.screensaverWindows[String(parts[0] || "")]) {
+      setScreensaverWindow(parts[0], false)
+      if (root.screensaverWindowCount === 0) cancelIdleCycle()
+    }
+  }
+
+  function startIdleCycle() {
+    if (!root.sleepEnabled || root.idleCycleRunning) return
+    root.idleCycleRunning = true
+    resetScreensaverWindows()
+
+    if (root.sleepDelaySeconds === 0) requestSuspend()
+    else {
+      sleepTimer.restart()
+      // Omarchy starts the screensaver at this same idle boundary. It briefly
+      // reports compositor activity while opening, so allow its window event
+      // to arrive before deciding that the user really returned.
+      if (root.firstIdleSeconds === root.screensaverSeconds)
+        screensaverGrace.restart()
+    }
+  }
+
+  function cancelIdleCycle() {
+    sleepTimer.stop()
+    screensaverGrace.stop()
+    root.idleCycleRunning = false
+    resetScreensaverWindows()
+  }
+
+  function handleIdleChanged() {
+    if (sleepMonitor.isIdle) startIdleCycle()
+    else if (root.idleCycleRunning
+             && root.screensaverWindowCount === 0
+             && !screensaverGrace.running) cancelIdleCycle()
+  }
+
   function requestSuspend() {
     if (!root.sleepEnabled || suspendProcess.running) return
     root.suspendPending = true
     root.lastError = ""
     suspendProcess.running = true
   }
+
+  onScreensaverSecondsChanged: cancelIdleCycle()
+  onSleepSecondsChanged: cancelIdleCycle()
 
   Process {
     id: initializeProcess
@@ -90,9 +165,29 @@ Item {
   IdleMonitor {
     id: sleepMonitor
     enabled: root.sleepEnabled
-    timeout: Math.max(1, root.sleepSeconds)
+    timeout: root.firstIdleSeconds
     respectInhibitors: true
-    onIsIdleChanged: if (isIdle) root.requestSuspend()
+    onIsIdleChanged: root.handleIdleChanged()
+  }
+
+  Timer {
+    id: sleepTimer
+    interval: root.sleepDelaySeconds * 1000
+    repeat: false
+    onTriggered: root.requestSuspend()
+  }
+
+  Timer {
+    id: screensaverGrace
+    interval: 3000
+    repeat: false
+    onTriggered: if (root.idleCycleRunning && !sleepMonitor.isIdle
+                     && root.screensaverWindowCount === 0) root.cancelIdleCycle()
+  }
+
+  Connections {
+    target: Hyprland
+    function onRawEvent(event) { root.handleHyprlandEvent(event) }
   }
 
   Process {
@@ -100,6 +195,7 @@ Item {
     command: ["systemctl", "suspend"]
     onExited: function(exitCode) {
       root.suspendPending = false
+      root.cancelIdleCycle()
       if (exitCode !== 0)
         root.lastError = "Sleep was blocked by the system or an application"
     }
@@ -113,6 +209,9 @@ Item {
         screensaver: root.screensaverSeconds,
         sleep: root.sleepSeconds,
         idle: sleepMonitor.isIdle,
+        idleCycleRunning: root.idleCycleRunning,
+        sleepDelay: root.sleepDelaySeconds,
+        screensaverWindows: root.screensaverWindowCount,
         saving: root.saving,
         suspendPending: root.suspendPending,
         error: root.lastError

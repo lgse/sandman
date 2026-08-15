@@ -21,7 +21,7 @@ omarchy bar plugin add lgse.sandman --section right
 
 ## Usage
 
-Click the moon in the bar and choose a timeout for each stage. Screen-saver presets apply immediately; Custom accepts hours and minutes and applies on confirmation. Existing values that do not match a preset—including Omarchy's 2½-minute default—open as Custom. Changes survive shell reloads and reboots.
+Click the moon in the bar and choose a timeout for each stage. Presets apply immediately; Custom accepts hours and minutes and applies on confirmation for both screen saver and sleep. Existing values that do not match a preset—including Omarchy's 2½-minute screen-saver default—open as Custom. Changes survive shell reloads and reboots.
 
 Sandman stores its state in `~/.config/omarchy/sandman.json`. The screen-saver and lock values remain in Omarchy's standard `~/.config/omarchy/shell.json`.
 

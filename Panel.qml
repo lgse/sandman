@@ -22,7 +22,12 @@ Panel {
   property bool customEditorOpen: false
   property int customHours: 0
   property int customMinutes: 1
+  property bool customSleepEditorOpen: false
+  property int customSleepHours: 0
+  property int customSleepMinutes: 15
   readonly property int customTimeoutSeconds: Model.customSeconds(customHours, customMinutes)
+  readonly property int customSleepTimeoutSeconds: Model.customSeconds(customSleepHours, customSleepMinutes)
+  readonly property bool sleepUsesPreset: Model.isPreset(sleepSeconds, Model.sleepPresets)
 
   function open() { root.controller.show() }
   function close() { root.controller.hide() }
@@ -62,10 +67,32 @@ Panel {
     if (root.sandmanService) root.sandmanService.setSleep(value)
   }
 
+  function selectSleepPreset(value) {
+    root.customSleepEditorOpen = false
+    root.setSleep(value)
+  }
+
+  function loadCustomSleepTimeout() {
+    var parts = Model.customParts(root.sleepSeconds > 0 ? root.sleepSeconds : 900)
+    root.customSleepHours = parts.hours
+    root.customSleepMinutes = parts.minutes
+  }
+
+  function openCustomSleepEditor() {
+    root.loadCustomSleepTimeout()
+    root.customSleepEditorOpen = true
+  }
+
+  function applyCustomSleepTimeout() {
+    if (root.customSleepTimeoutSeconds > 0) root.setSleep(root.customSleepTimeoutSeconds)
+  }
+
   onOpenedChanged: {
     if (!opened) return
     root.customEditorOpen = !root.screensaverUsesPreset
+    root.customSleepEditorOpen = !root.sleepUsesPreset
     if (root.customEditorOpen) root.loadCustomTimeout()
+    if (root.customSleepEditorOpen) root.loadCustomSleepTimeout()
   }
 
   KeyboardPanel {
@@ -268,14 +295,67 @@ Panel {
                 required property var modelData
                 width: (sleepGrid.width - sleepGrid.columnSpacing * 2) / 3
                 text: Model.formatDuration(modelData)
-                selected: root.sleepSeconds === Number(modelData)
+                selected: !root.customSleepEditorOpen
+                  && root.sleepSeconds === Number(modelData)
                 enabled: !root.saving
                 focusable: true
                 bordered: true
                 foreground: root.contentForeground
                 fontFamily: root.contentFontFamily
-                onClicked: root.setSleep(Number(modelData))
+                onClicked: root.selectSleepPreset(Number(modelData))
               }
+            }
+
+            Button {
+              width: (sleepGrid.width - sleepGrid.columnSpacing * 2) / 3
+              text: "Custom"
+              selected: root.customSleepEditorOpen || !root.sleepUsesPreset
+              enabled: !root.saving
+              focusable: true
+              bordered: true
+              foreground: root.contentForeground
+              fontFamily: root.contentFontFamily
+              onClicked: root.openCustomSleepEditor()
+            }
+          }
+
+          Row {
+            visible: root.customSleepEditorOpen
+            width: parent.width
+            spacing: Style.space(8)
+
+            NumberField {
+              label: "Hours"
+              value: root.customSleepHours
+              from: 0
+              to: 24
+              fieldWidth: Style.space(104)
+              foreground: root.contentForeground
+              fontFamily: root.contentFontFamily
+              onModified: function(value) { root.customSleepHours = value }
+            }
+
+            NumberField {
+              label: "Minutes"
+              value: root.customSleepMinutes
+              from: 0
+              to: 59
+              fieldWidth: Style.space(104)
+              foreground: root.contentForeground
+              fontFamily: root.contentFontFamily
+              onModified: function(value) { root.customSleepMinutes = value }
+            }
+
+            Button {
+              anchors.bottom: parent.bottom
+              width: parent.width - x
+              text: "Apply"
+              enabled: !root.saving && root.customSleepTimeoutSeconds > 0
+              focusable: true
+              bordered: true
+              foreground: root.contentForeground
+              fontFamily: root.contentFontFamily
+              onClicked: root.applyCustomSleepTimeout()
             }
           }
 

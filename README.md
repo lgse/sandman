@@ -2,6 +2,8 @@
 
 Set when your screen rests and your computer sleeps from the Omarchy Quattro bar.
 
+![Sandman screensaver and sleep settings](preview.png)
+
 Sandman provides two simple controls:
 
 - **Screen saver** — updates Omarchy's `idle.screensaver` timeout or turns the screen saver off. Sandman preserves the existing lock schedule while off and restores the delay between screen saver and lock when turned back on.

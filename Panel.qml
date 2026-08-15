@@ -16,18 +16,24 @@ Panel {
   readonly property color contentForeground: bar ? bar.foreground : Color.foreground
   readonly property string contentFontFamily: bar ? bar.fontFamily : Style.font.family
   readonly property int screensaverSeconds: sandmanService ? sandmanService.screensaverSeconds : 150
+  readonly property int lockSeconds: sandmanService ? sandmanService.lockSeconds : 300
   readonly property int sleepSeconds: sandmanService ? sandmanService.sleepSeconds : 0
   readonly property bool saving: sandmanService ? sandmanService.saving : false
   readonly property bool screensaverUsesPreset: Model.isPreset(screensaverSeconds, Model.screensaverPresets)
+  readonly property bool lockUsesPreset: Model.isPreset(lockSeconds, Model.lockPresets)
+  readonly property bool sleepUsesPreset: Model.isPreset(sleepSeconds, Model.sleepPresets)
   property bool customEditorOpen: false
   property int customHours: 0
   property int customMinutes: 1
+  property bool customLockEditorOpen: false
+  property int customLockHours: 0
+  property int customLockMinutes: 5
   property bool customSleepEditorOpen: false
   property int customSleepHours: 0
   property int customSleepMinutes: 15
   readonly property int customTimeoutSeconds: Model.customSeconds(customHours, customMinutes)
+  readonly property int customLockTimeoutSeconds: Model.customSeconds(customLockHours, customLockMinutes)
   readonly property int customSleepTimeoutSeconds: Model.customSeconds(customSleepHours, customSleepMinutes)
-  readonly property bool sleepUsesPreset: Model.isPreset(sleepSeconds, Model.sleepPresets)
 
   function open() { root.controller.show() }
   function close() { root.controller.hide() }
@@ -63,6 +69,30 @@ Panel {
     if (root.customTimeoutSeconds > 0) root.setScreensaver(root.customTimeoutSeconds)
   }
 
+  function setLock(value) {
+    if (root.sandmanService) root.sandmanService.setLock(value)
+  }
+
+  function selectLockPreset(value) {
+    root.customLockEditorOpen = false
+    root.setLock(value)
+  }
+
+  function loadCustomLockTimeout() {
+    var parts = Model.customParts(root.lockSeconds > 0 ? root.lockSeconds : 300)
+    root.customLockHours = parts.hours
+    root.customLockMinutes = parts.minutes
+  }
+
+  function openCustomLockEditor() {
+    root.loadCustomLockTimeout()
+    root.customLockEditorOpen = true
+  }
+
+  function applyCustomLockTimeout() {
+    if (root.customLockTimeoutSeconds > 0) root.setLock(root.customLockTimeoutSeconds)
+  }
+
   function setSleep(value) {
     if (root.sandmanService) root.sandmanService.setSleep(value)
   }
@@ -90,8 +120,10 @@ Panel {
   onOpenedChanged: {
     if (!opened) return
     root.customEditorOpen = !root.screensaverUsesPreset
+    root.customLockEditorOpen = !root.lockUsesPreset
     root.customSleepEditorOpen = !root.sleepUsesPreset
     if (root.customEditorOpen) root.loadCustomTimeout()
+    if (root.customLockEditorOpen) root.loadCustomLockTimeout()
     if (root.customSleepEditorOpen) root.loadCustomSleepTimeout()
   }
 
@@ -141,7 +173,7 @@ Panel {
             }
 
             Text {
-              text: Model.statusSummary(root.screensaverSeconds, root.sleepSeconds)
+              text: Model.statusSummary(root.screensaverSeconds, root.lockSeconds, root.sleepSeconds)
               color: Util.alpha(root.contentForeground, 0.64)
               font.family: root.contentFontFamily
               font.pixelSize: Style.font.caption
@@ -249,14 +281,115 @@ Panel {
           }
 
           Text {
+            visible: root.screensaverSeconds > 0
+              && root.lockSeconds > 0
+              && root.lockSeconds <= root.screensaverSeconds
             width: parent.width
-            text: root.screensaverSeconds === 0
-              ? "Automatic lock remains on its existing schedule."
-              : "Your existing delay from screen saver to lock is preserved."
-            color: Util.alpha(root.contentForeground, 0.48)
+            text: "Auto-lock is set before the screen saver can appear."
+            color: Color.urgent
             font.family: root.contentFontFamily
             font.pixelSize: Style.font.caption
             wrapMode: Text.WordWrap
+          }
+        }
+
+        PanelSeparator { width: parent.width }
+
+        Column {
+          width: parent.width
+          spacing: Style.space(7)
+
+          PanelSectionHeader {
+            width: parent.width
+            text: "AUTO-LOCK"
+            foreground: root.contentForeground
+            fontFamily: root.contentFontFamily
+          }
+
+          Text {
+            width: parent.width
+            text: "Lock the session after inactivity"
+            color: Util.alpha(root.contentForeground, 0.64)
+            font.family: root.contentFontFamily
+            font.pixelSize: Style.font.caption
+          }
+
+          Grid {
+            id: lockGrid
+            width: parent.width
+            columns: 3
+            columnSpacing: Style.space(6)
+            rowSpacing: Style.space(6)
+
+            Repeater {
+              model: Model.lockPresets
+
+              Button {
+                required property var modelData
+                width: (lockGrid.width - lockGrid.columnSpacing * 2) / 3
+                text: Model.formatDuration(modelData)
+                selected: !root.customLockEditorOpen
+                  && root.lockSeconds === Number(modelData)
+                enabled: !root.saving
+                focusable: true
+                bordered: true
+                foreground: root.contentForeground
+                fontFamily: root.contentFontFamily
+                onClicked: root.selectLockPreset(Number(modelData))
+              }
+            }
+
+            Button {
+              width: (lockGrid.width - lockGrid.columnSpacing * 2) / 3
+              text: "Custom"
+              selected: root.customLockEditorOpen || !root.lockUsesPreset
+              enabled: !root.saving
+              focusable: true
+              bordered: true
+              foreground: root.contentForeground
+              fontFamily: root.contentFontFamily
+              onClicked: root.openCustomLockEditor()
+            }
+          }
+
+          Row {
+            visible: root.customLockEditorOpen
+            width: parent.width
+            spacing: Style.space(8)
+
+            NumberField {
+              label: "Hours"
+              value: root.customLockHours
+              from: 0
+              to: 24
+              fieldWidth: Style.space(104)
+              foreground: root.contentForeground
+              fontFamily: root.contentFontFamily
+              onModified: function(value) { root.customLockHours = value }
+            }
+
+            NumberField {
+              label: "Minutes"
+              value: root.customLockMinutes
+              from: 0
+              to: 59
+              fieldWidth: Style.space(104)
+              foreground: root.contentForeground
+              fontFamily: root.contentFontFamily
+              onModified: function(value) { root.customLockMinutes = value }
+            }
+
+            Button {
+              anchors.bottom: parent.bottom
+              width: parent.width - x
+              text: "Apply"
+              enabled: !root.saving && root.customLockTimeoutSeconds > 0
+              focusable: true
+              bordered: true
+              foreground: root.contentForeground
+              fontFamily: root.contentFontFamily
+              onClicked: root.applyCustomLockTimeout()
+            }
           }
         }
 

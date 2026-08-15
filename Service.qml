@@ -9,7 +9,7 @@ Item {
   id: root
 
   property var shell: null
-  property var configState: ({ screensaver: 150, sleep: 0 })
+  property var configState: ({ screensaver: 150, lock: 300, sleep: 0 })
   property bool saving: false
   property string lastError: ""
   property bool suspendPending: false
@@ -21,6 +21,7 @@ Item {
   readonly property string configPath: home + "/.config/omarchy/sandman.json"
   readonly property string screensaverClass: "org.omarchy.screensaver"
   readonly property int screensaverSeconds: Model.normalizedSeconds(configState.screensaver, 150, true)
+  readonly property int lockSeconds: Model.normalizedSeconds(configState.lock, 300, true)
   readonly property int sleepSeconds: Model.normalizedSeconds(configState.sleep, 0, true)
   readonly property bool sleepEnabled: sleepSeconds > 0
   readonly property int firstIdleSeconds: sleepEnabled
@@ -43,6 +44,10 @@ Item {
 
   function setScreensaver(seconds) {
     return runHelper(["set-screensaver", String(seconds)])
+  }
+
+  function setLock(seconds) {
+    return runHelper(["set-lock", String(seconds)])
   }
 
   function setSleep(seconds) {
@@ -209,6 +214,7 @@ Item {
     function status(): string {
       return JSON.stringify({
         screensaver: root.screensaverSeconds,
+        lock: root.lockSeconds,
         sleep: root.sleepSeconds,
         idle: sleepMonitor.isIdle,
         idleCycleRunning: root.idleCycleRunning,
@@ -221,6 +227,7 @@ Item {
     }
 
     function setScreensaver(seconds: int): bool { return root.setScreensaver(seconds) }
+    function setLock(seconds: int): bool { return root.setLock(seconds) }
     function setSleep(seconds: int): bool { return root.setSleep(seconds) }
     function refresh(): void { root.refresh() }
   }

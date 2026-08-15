@@ -1,13 +1,16 @@
 # Sandman
 
-Set when your screen rests and your computer sleeps from the Omarchy Quattro bar.
+Set when your screen rests, locks, and sleeps from the Omarchy Quattro bar.
 
-![Sandman screensaver and sleep settings](preview.png)
+![Sandman screensaver, auto-lock, and sleep settings](preview.png)
 
-Sandman provides two simple controls:
+Sandman provides three simple controls:
 
-- **Screen saver** — updates Omarchy's `idle.screensaver` timeout or turns the screen saver off. Sandman preserves the existing lock schedule while off and restores the delay between screen saver and lock when turned back on.
-- **Sleep** — suspends the computer after the selected period of inactivity while respecting idle inhibitors. Sleep is off until you enable it.
+- **Screen saver** — starts the screen saver after the selected period of inactivity.
+- **Auto-lock** — locks the session after the selected period of inactivity.
+- **Sleep** — suspends the computer after the selected period of inactivity while respecting idle inhibitors.
+
+Each setting offers presets, Off, and a custom hours-and-minutes timeout. Omarchy requires positive screen-saver and lock values, so Sandman simulates Off with safe seven-day timeouts while displaying and persisting Off as `0`.
 
 ## Install
 
@@ -23,9 +26,9 @@ omarchy bar plugin add lgse.sandman --section right
 
 ## Usage
 
-Click the moon in the bar and choose a timeout for each stage. Presets apply immediately; Custom accepts hours and minutes and applies on confirmation for both screen saver and sleep. Existing values that do not match a preset—including Omarchy's 2½-minute screen-saver default—open as Custom. Changes survive shell reloads and reboots.
+Click the Zzz icon in the bar and choose a timeout for each stage. Presets apply immediately; Custom accepts hours and minutes and applies on confirmation for screen saver, auto-lock, and sleep. Existing values that do not match a preset—including Omarchy's 2½-minute screen-saver default—open as Custom. Changes survive shell reloads and reboots.
 
-Sandman stores its state in `~/.config/omarchy/sandman.json`. The screen-saver and lock values remain in Omarchy's standard `~/.config/omarchy/shell.json`.
+Sandman stores its state in `~/.config/omarchy/sandman.json`. The effective screen-saver and auto-lock values remain in Omarchy's standard `~/.config/omarchy/shell.json`.
 
 ## How sleep works
 

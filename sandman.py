@@ -11,7 +11,9 @@ from pathlib import Path
 from typing import Any
 
 DEFAULT_SCREENSAVER = 150
+DEFAULT_LOCK = 300
 DEFAULT_SLEEP = 0
+OFF_TIMEOUT = 7 * 24 * 60 * 60
 
 
 def shell_path() -> Path:
@@ -66,51 +68,60 @@ def current_config() -> dict[str, int]:
     idle = shell.get("idle") if isinstance(shell.get("idle"), dict) else {}
     stored = read_json(config_path(), {})
     shell_screensaver = seconds(idle.get("screensaver"), DEFAULT_SCREENSAVER)
-    shell_lock = seconds(idle.get("lock"), 300)
+    shell_lock = seconds(idle.get("lock"), DEFAULT_LOCK)
     stored_screensaver = (
         seconds(stored.get("screensaver"), DEFAULT_SCREENSAVER, allow_off=True)
         if "screensaver" in stored
         else shell_screensaver
     )
+    stored_lock = (
+        seconds(stored.get("lock"), DEFAULT_LOCK, allow_off=True)
+        if "lock" in stored
+        else shell_lock
+    )
     return {
         "screensaver": stored_screensaver,
+        "lock": stored_lock,
         "sleep": seconds(stored.get("sleep"), DEFAULT_SLEEP, allow_off=True),
-        "lockDelay": seconds(
-            stored.get("lockDelay"),
-            max(0, shell_lock - shell_screensaver),
-            allow_off=True,
-        ),
     }
 
 
 def initialize() -> dict[str, int]:
     config = current_config()
-    if not config_path().exists():
-        atomic_write(config_path(), config)
+    # Always persist the normalized shape so existing installs gain new fields.
+    atomic_write(config_path(), config)
     return config
 
 
-def set_screensaver(value: int) -> dict[str, int]:
-    value = seconds(value, DEFAULT_SLEEP, allow_off=True)
+def apply_idle_config(config: dict[str, int]) -> None:
     shell = read_json(shell_path(), {"version": 1})
     idle = shell.get("idle") if isinstance(shell.get("idle"), dict) else {}
-    config = current_config()
-    current_lock = seconds(idle.get("lock"), 300)
-
-    # Omarchy has no independent "screensaver off" value. Scheduling it one
-    # second after lock makes lock win the idle race; lock then cancels the
-    # pending screensaver. The user's lock timeout itself remains unchanged.
-    if value == 0:
-        shell["idle"] = {**idle, "screensaver": current_lock + 1}
-    else:
-        shell["idle"] = {
-            **idle,
-            "screensaver": value,
-            "lock": value + config["lockDelay"],
-        }
+    lock_timeout = config["lock"] if config["lock"] > 0 else OFF_TIMEOUT
+    screensaver_timeout = (
+        config["screensaver"]
+        if config["screensaver"] > 0
+        else lock_timeout + 1
+    )
+    shell["idle"] = {
+        **idle,
+        "screensaver": screensaver_timeout,
+        "lock": lock_timeout,
+    }
     atomic_write(shell_path(), shell)
 
-    config["screensaver"] = value
+
+def set_screensaver(value: int) -> dict[str, int]:
+    config = current_config()
+    config["screensaver"] = seconds(value, DEFAULT_SLEEP, allow_off=True)
+    apply_idle_config(config)
+    atomic_write(config_path(), config)
+    return config
+
+
+def set_lock(value: int) -> dict[str, int]:
+    config = current_config()
+    config["lock"] = seconds(value, DEFAULT_SLEEP, allow_off=True)
+    apply_idle_config(config)
     atomic_write(config_path(), config)
     return config
 
@@ -130,6 +141,8 @@ def parser() -> argparse.ArgumentParser:
     commands.add_parser("get")
     screensaver = commands.add_parser("set-screensaver")
     screensaver.add_argument("seconds", type=int)
+    lock = commands.add_parser("set-lock")
+    lock.add_argument("seconds", type=int)
     sleep = commands.add_parser("set-sleep")
     sleep.add_argument("seconds", type=int)
     return result
@@ -143,6 +156,8 @@ def main() -> int:
         config = current_config()
     elif args.command == "set-screensaver":
         config = set_screensaver(args.seconds)
+    elif args.command == "set-lock":
+        config = set_lock(args.seconds)
     else:
         config = set_sleep(args.seconds)
     print(json.dumps(config, separators=(",", ":")))

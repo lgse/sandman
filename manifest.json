@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "id": "lgse.sandman",
   "name": "Sandman",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "author": "Pierre Berube",
   "license": "MIT",
   "description": "Set when your screen rests and your computer sleeps.",

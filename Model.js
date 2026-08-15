@@ -27,11 +27,37 @@ function formatDuration(seconds) {
   if (!isFinite(value) || value <= 0) return "Off"
   if (value < 60) return Math.round(value) + " sec"
 
-  var minutes = Math.round(value / 60)
-  if (minutes < 60) return minutes + " min"
+  var minutes = value / 60
+  if (minutes < 60) {
+    var minuteLabel = minutes === Math.round(minutes)
+      ? String(Math.round(minutes)) : minutes.toFixed(1).replace(/\.0$/, "")
+    return minuteLabel + " min"
+  }
 
   var hours = minutes / 60
   return (hours === Math.round(hours) ? String(Math.round(hours)) : hours.toFixed(1)) + (hours === 1 ? " hour" : " hours")
+}
+
+function isPreset(value, presets) {
+  var seconds = Number(value)
+  for (var i = 0; i < presets.length; i++) {
+    if (seconds === Number(presets[i])) return true
+  }
+  return false
+}
+
+function customParts(seconds) {
+  var totalMinutes = Math.max(1, Math.round(Number(seconds) / 60))
+  return {
+    hours: Math.floor(totalMinutes / 60),
+    minutes: totalMinutes % 60
+  }
+}
+
+function customSeconds(hours, minutes) {
+  var safeHours = Math.max(0, Math.min(24, Math.round(Number(hours) || 0)))
+  var safeMinutes = Math.max(0, Math.min(59, Math.round(Number(minutes) || 0)))
+  return (safeHours * 60 + safeMinutes) * 60
 }
 
 function statusSummary(screensaver, sleep) {

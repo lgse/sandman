@@ -18,6 +18,11 @@ Panel {
   readonly property int screensaverSeconds: sandmanService ? sandmanService.screensaverSeconds : 150
   readonly property int sleepSeconds: sandmanService ? sandmanService.sleepSeconds : 0
   readonly property bool saving: sandmanService ? sandmanService.saving : false
+  readonly property bool screensaverUsesPreset: Model.isPreset(screensaverSeconds, Model.screensaverPresets)
+  property bool customEditorOpen: false
+  property int customHours: 0
+  property int customMinutes: 1
+  readonly property int customTimeoutSeconds: Model.customSeconds(customHours, customMinutes)
 
   function open() { root.controller.show() }
   function close() { root.controller.hide() }
@@ -33,8 +38,34 @@ Panel {
     if (root.sandmanService) root.sandmanService.setScreensaver(value)
   }
 
+  function selectScreensaverPreset(value) {
+    root.customEditorOpen = false
+    root.setScreensaver(value)
+  }
+
+  function loadCustomTimeout() {
+    var parts = Model.customParts(root.screensaverSeconds)
+    root.customHours = parts.hours
+    root.customMinutes = parts.minutes
+  }
+
+  function openCustomEditor() {
+    root.loadCustomTimeout()
+    root.customEditorOpen = true
+  }
+
+  function applyCustomTimeout() {
+    if (root.customTimeoutSeconds > 0) root.setScreensaver(root.customTimeoutSeconds)
+  }
+
   function setSleep(value) {
     if (root.sandmanService) root.sandmanService.setSleep(value)
+  }
+
+  onOpenedChanged: {
+    if (!opened) return
+    root.customEditorOpen = !root.screensaverUsesPreset
+    if (root.customEditorOpen) root.loadCustomTimeout()
   }
 
   KeyboardPanel {
@@ -126,14 +157,67 @@ Panel {
                 required property var modelData
                 width: (screensaverGrid.width - screensaverGrid.columnSpacing * 2) / 3
                 text: Model.formatDuration(modelData)
-                selected: root.screensaverSeconds === Number(modelData)
+                selected: !root.customEditorOpen
+                  && root.screensaverSeconds === Number(modelData)
                 enabled: !root.saving
                 focusable: true
                 bordered: true
                 foreground: root.contentForeground
                 fontFamily: root.contentFontFamily
-                onClicked: root.setScreensaver(Number(modelData))
+                onClicked: root.selectScreensaverPreset(Number(modelData))
               }
+            }
+
+            Button {
+              width: (screensaverGrid.width - screensaverGrid.columnSpacing * 2) / 3
+              text: "Custom"
+              selected: root.customEditorOpen || !root.screensaverUsesPreset
+              enabled: !root.saving
+              focusable: true
+              bordered: true
+              foreground: root.contentForeground
+              fontFamily: root.contentFontFamily
+              onClicked: root.openCustomEditor()
+            }
+          }
+
+          Row {
+            visible: root.customEditorOpen
+            width: parent.width
+            spacing: Style.space(8)
+
+            NumberField {
+              label: "Hours"
+              value: root.customHours
+              from: 0
+              to: 24
+              fieldWidth: Style.space(104)
+              foreground: root.contentForeground
+              fontFamily: root.contentFontFamily
+              onModified: function(value) { root.customHours = value }
+            }
+
+            NumberField {
+              label: "Minutes"
+              value: root.customMinutes
+              from: 0
+              to: 59
+              fieldWidth: Style.space(104)
+              foreground: root.contentForeground
+              fontFamily: root.contentFontFamily
+              onModified: function(value) { root.customMinutes = value }
+            }
+
+            Button {
+              anchors.bottom: parent.bottom
+              width: parent.width - x
+              text: "Apply"
+              enabled: !root.saving && root.customTimeoutSeconds > 0
+              focusable: true
+              bordered: true
+              foreground: root.contentForeground
+              fontFamily: root.contentFontFamily
+              onClicked: root.applyCustomTimeout()
             }
           }
 

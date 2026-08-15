@@ -20,10 +20,12 @@ Item {
   readonly property string home: Quickshell.env("HOME")
   readonly property string configPath: home + "/.config/omarchy/sandman.json"
   readonly property string screensaverClass: "org.omarchy.screensaver"
-  readonly property int screensaverSeconds: Model.normalizedSeconds(configState.screensaver, 150, false)
+  readonly property int screensaverSeconds: Model.normalizedSeconds(configState.screensaver, 150, true)
   readonly property int sleepSeconds: Model.normalizedSeconds(configState.sleep, 0, true)
   readonly property bool sleepEnabled: sleepSeconds > 0
-  readonly property int firstIdleSeconds: sleepEnabled ? Math.min(screensaverSeconds, sleepSeconds) : 1
+  readonly property int firstIdleSeconds: sleepEnabled
+    ? (screensaverSeconds > 0 ? Math.min(screensaverSeconds, sleepSeconds) : sleepSeconds)
+    : 1
   readonly property int sleepDelaySeconds: sleepEnabled ? Math.max(0, sleepSeconds - firstIdleSeconds) : 0
   readonly property string helperPath: {
     var url = String(Qt.resolvedUrl("sandman.py"))
@@ -97,7 +99,7 @@ Item {
       // Omarchy starts the screensaver at this same idle boundary. It briefly
       // reports compositor activity while opening, so allow its window event
       // to arrive before deciding that the user really returned.
-      if (root.firstIdleSeconds === root.screensaverSeconds)
+      if (root.screensaverSeconds > 0 && root.firstIdleSeconds === root.screensaverSeconds)
         screensaverGrace.restart()
     }
   }

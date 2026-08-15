@@ -65,9 +65,21 @@ def current_config() -> dict[str, int]:
     shell = read_json(shell_path(), {})
     idle = shell.get("idle") if isinstance(shell.get("idle"), dict) else {}
     stored = read_json(config_path(), {})
+    shell_screensaver = seconds(idle.get("screensaver"), DEFAULT_SCREENSAVER)
+    shell_lock = seconds(idle.get("lock"), 300)
+    stored_screensaver = (
+        seconds(stored.get("screensaver"), DEFAULT_SCREENSAVER, allow_off=True)
+        if "screensaver" in stored
+        else shell_screensaver
+    )
     return {
-        "screensaver": seconds(stored.get("screensaver"), seconds(idle.get("screensaver"), DEFAULT_SCREENSAVER)),
+        "screensaver": stored_screensaver,
         "sleep": seconds(stored.get("sleep"), DEFAULT_SLEEP, allow_off=True),
+        "lockDelay": seconds(
+            stored.get("lockDelay"),
+            max(0, shell_lock - shell_screensaver),
+            allow_off=True,
+        ),
     }
 
 
@@ -79,20 +91,25 @@ def initialize() -> dict[str, int]:
 
 
 def set_screensaver(value: int) -> dict[str, int]:
-    value = seconds(value, DEFAULT_SCREENSAVER)
+    value = seconds(value, DEFAULT_SLEEP, allow_off=True)
     shell = read_json(shell_path(), {"version": 1})
     idle = shell.get("idle") if isinstance(shell.get("idle"), dict) else {}
+    config = current_config()
+    current_lock = seconds(idle.get("lock"), 300)
 
-    # Omarchy's lock is the stage after its screensaver. Preserve that existing
-    # gap so selecting a longer screensaver timeout cannot leave lock scheduled
-    # first (which would prevent the screensaver from appearing at all).
-    previous_screensaver = seconds(idle.get("screensaver"), DEFAULT_SCREENSAVER)
-    previous_lock = seconds(idle.get("lock"), 300)
-    lock_delay = max(0, previous_lock - previous_screensaver)
-    shell["idle"] = {**idle, "screensaver": value, "lock": value + lock_delay}
+    # Omarchy has no independent "screensaver off" value. Scheduling it one
+    # second after lock makes lock win the idle race; lock then cancels the
+    # pending screensaver. The user's lock timeout itself remains unchanged.
+    if value == 0:
+        shell["idle"] = {**idle, "screensaver": current_lock + 1}
+    else:
+        shell["idle"] = {
+            **idle,
+            "screensaver": value,
+            "lock": value + config["lockDelay"],
+        }
     atomic_write(shell_path(), shell)
 
-    config = current_config()
     config["screensaver"] = value
     atomic_write(config_path(), config)
     return config

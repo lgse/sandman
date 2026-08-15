@@ -1,6 +1,6 @@
 .pragma library
 
-var screensaverPresets = [60, 120, 300, 600, 900, 1800]
+var screensaverPresets = [0, 60, 120, 300, 600, 900, 1800]
 var sleepPresets = [0, 900, 1800, 3600, 7200]
 
 function normalizedSeconds(value, fallback, allowOff) {
@@ -17,7 +17,7 @@ function parseConfig(raw) {
   catch (error) { parsed = {} }
 
   return {
-    screensaver: normalizedSeconds(parsed.screensaver, 150, false),
+    screensaver: normalizedSeconds(parsed.screensaver, 150, true),
     sleep: normalizedSeconds(parsed.sleep, 0, true)
   }
 }

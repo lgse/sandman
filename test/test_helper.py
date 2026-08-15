@@ -40,20 +40,40 @@ class SandmanHelperTest(unittest.TestCase):
         return json.loads(completed.stdout)
 
     def test_init_inherits_omarchy_screensaver_and_disables_sleep(self):
-        self.assertEqual(self.run_helper("init"), {"screensaver": 150, "sleep": 0})
-        self.assertEqual(json.loads(self.config.read_text()), {"screensaver": 150, "sleep": 0})
+        expected = {"screensaver": 150, "sleep": 0, "lockDelay": 150}
+        self.assertEqual(self.run_helper("init"), expected)
+        self.assertEqual(json.loads(self.config.read_text()), expected)
 
     def test_screensaver_preserves_lock_gap_and_unrelated_config(self):
         self.run_helper("init")
-        self.assertEqual(self.run_helper("set-screensaver", "600"), {"screensaver": 600, "sleep": 0})
+        self.assertEqual(
+            self.run_helper("set-screensaver", "600"),
+            {"screensaver": 600, "sleep": 0, "lockDelay": 150},
+        )
         shell = json.loads(self.shell.read_text())
         self.assertEqual(shell["idle"], {"screensaver": 600, "lock": 750})
         self.assertTrue(shell["unrelated"])
 
+    def test_screensaver_off_keeps_lock_and_schedules_screensaver_after_it(self):
+        self.run_helper("init")
+        self.assertEqual(
+            self.run_helper("set-screensaver", "0"),
+            {"screensaver": 0, "sleep": 0, "lockDelay": 150},
+        )
+        self.assertEqual(json.loads(self.shell.read_text())["idle"], {"screensaver": 301, "lock": 300})
+        self.assertEqual(
+            self.run_helper("set-screensaver", "600"),
+            {"screensaver": 600, "sleep": 0, "lockDelay": 150},
+        )
+        self.assertEqual(json.loads(self.shell.read_text())["idle"], {"screensaver": 600, "lock": 750})
+
     def test_sleep_only_changes_sandman_state(self):
         self.run_helper("init")
         before = self.shell.read_text()
-        self.assertEqual(self.run_helper("set-sleep", "3600"), {"screensaver": 150, "sleep": 3600})
+        self.assertEqual(
+            self.run_helper("set-sleep", "3600"),
+            {"screensaver": 150, "sleep": 3600, "lockDelay": 150},
+        )
         self.assertEqual(self.shell.read_text(), before)
 
 

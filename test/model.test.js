@@ -18,6 +18,10 @@ test("parseConfig normalizes persisted values", () => {
     JSON.parse(JSON.stringify(model.parseConfig("broken"))),
     { screensaver: 150, sleep: 0 }
   );
+  assert.deepEqual(
+    JSON.parse(JSON.stringify(model.parseConfig('{"screensaver":0,"sleep":0}'))),
+    { screensaver: 0, sleep: 0 }
+  );
 });
 
 test("formatDuration produces compact labels", () => {

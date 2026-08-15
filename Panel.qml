@@ -139,7 +139,9 @@ Panel {
 
           Text {
             width: parent.width
-            text: "Your existing delay from screen saver to lock is preserved."
+            text: root.screensaverSeconds === 0
+              ? "Automatic lock remains on its existing schedule."
+              : "Your existing delay from screen saver to lock is preserved."
             color: Util.alpha(root.contentForeground, 0.48)
             font.family: root.contentFontFamily
             font.pixelSize: Style.font.caption
@@ -194,7 +196,9 @@ Panel {
           }
 
           Text {
-            visible: root.sleepSeconds > 0 && root.sleepSeconds <= root.screensaverSeconds
+            visible: root.screensaverSeconds > 0
+              && root.sleepSeconds > 0
+              && root.sleepSeconds <= root.screensaverSeconds
             width: parent.width
             text: "Sleep is set before the screen saver can appear."
             color: Color.urgent

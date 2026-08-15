@@ -2,7 +2,7 @@
 
 Set when your screen rests, locks, and sleeps from the Omarchy Quattro bar.
 
-![Sandman screensaver, auto-lock, and sleep settings](preview.png)
+![Sandman screensaver, auto-lock, and sleep settings](preview-auto-lock.png)
 
 Sandman provides three simple controls:
 

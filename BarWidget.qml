@@ -51,7 +51,7 @@ BarWidget {
     bar: root.bar
     text: "󰒲"
     tooltipText: root.sandmanService
-      ? Model.statusSummary(root.sandmanService.screensaverSeconds, root.sandmanService.sleepSeconds)
+      ? Model.statusSummary(root.sandmanService.screensaverSeconds, root.sandmanService.lockSeconds, root.sandmanService.sleepSeconds)
       : "Sandman"
     onPressed: function(buttonCode) {
       if (buttonCode === Qt.LeftButton) root.toggle()

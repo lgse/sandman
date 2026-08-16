@@ -12,12 +12,20 @@ vm.runInContext(source, model);
 test("parseConfig normalizes persisted values", () => {
   assert.deepEqual(
     JSON.parse(JSON.stringify(model.parseConfig('{"screensaver":600,"display":120,"lock":900,"sleep":3600}'))),
-    { screensaver: 600, display: 120, lock: 900, sleep: 3600 }
+    { screensaver: 600, display: 120, lock: 900, sleep: 3600, lid: "system" }
   );
   assert.deepEqual(
     JSON.parse(JSON.stringify(model.parseConfig("broken"))),
-    { screensaver: 150, display: 0, lock: 300, sleep: 0 }
+    { screensaver: 150, display: 0, lock: 300, sleep: 0, lid: "system" }
   );
+});
+
+test("lid actions are normalized and labelled", () => {
+  assert.equal(model.normalizedLidAction("display"), "display");
+  assert.equal(model.normalizedLidAction("invalid"), "system");
+  assert.equal(model.lidActionLabel("nothing"), "Do nothing");
+  assert.equal(model.lidActionLabel("system"), "System default");
+  assert.equal(model.parseConfig('{"lid":"hibernate"}').lid, "hibernate");
 });
 
 test("formatDuration produces compact labels", () => {

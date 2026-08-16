@@ -2,10 +2,10 @@
   "schemaVersion": 1,
   "id": "lgse.sandman",
   "name": "Sandman",
-  "version": "0.7.1",
+  "version": "0.8.0",
   "author": "Pierre Berube",
   "license": "MIT",
-  "description": "Set when your screen rests, locks, and sleeps.",
+  "description": "Set lid-close actions and when your screen rests, locks, and sleeps.",
   "kinds": [
     "service",
     "bar-widget"
@@ -17,7 +17,7 @@
   },
   "barWidget": {
     "displayName": "Sandman",
-    "description": "Set screensaver, auto-lock, and sleep timers",
+    "description": "Set lid actions, screensaver, auto-lock, and sleep timers",
     "category": "System",
     "allowMultiple": false,
     "defaultSection": "right"

@@ -4,8 +4,9 @@ Set when your screen rests, locks, and sleeps from the Omarchy Quattro bar.
 
 ![Sandman screensaver, auto-lock, and sleep settings](preview.png)
 
-Sandman provides four simple controls:
+Sandman provides five simple controls:
 
+- **Lid close** — keeps the system default or does nothing, turns off the laptop display, suspends, or hibernates when the lid closes.
 - **Screen saver** — starts the screen saver after the selected period of inactivity.
 - **Displays off** — turns the displays off (DPMS) after the selected period of inactivity while respecting idle inhibitors.
 - **Auto-lock** — locks the session after the selected period of inactivity.
@@ -27,9 +28,11 @@ omarchy bar plugin add lgse.sandman --section right
 
 ## Usage
 
-Click the Zzz icon in the bar and choose a timeout for each stage. Presets apply immediately; Custom accepts hours and minutes and applies on confirmation for screen saver, displays off, auto-lock, and sleep. Existing values that do not match a preset—including Omarchy's 2½-minute screen-saver default—open as Custom. Changes survive shell reloads and reboots.
+Click the Zzz icon in the bar and choose a lid-close action or a timeout for each idle stage. Presets apply immediately; Custom accepts hours and minutes and applies on confirmation for screen saver, displays off, auto-lock, and sleep. Existing values that do not match a preset—including Omarchy's 2½-minute screen-saver default—open as Custom. Changes survive shell reloads and reboots.
 
-Sandman stores its state in `~/.config/omarchy/sandman.json`. The effective screen-saver and auto-lock values remain in Omarchy's standard `~/.config/omarchy/shell.json`; the displays-off and sleep timers are handled by Sandman itself and are not written there.
+The lid controls appear only when UPower reports a laptop lid. **System default** leaves logind in charge. The other actions use a low-level lid-switch inhibitor while Sandman is running, then handle the event without changing system-wide logind configuration. **Display off** targets the internal eDP/LVDS/DSI output and turns it back on when the lid opens. Hibernate is selectable only when logind reports that it is available.
+
+Sandman stores its state in `~/.config/omarchy/sandman.json`. The effective screen-saver and auto-lock values remain in Omarchy's standard `~/.config/omarchy/shell.json`; lid actions and the displays-off and sleep timers are handled by Sandman itself and are not written there.
 
 ## How displays off works
 
@@ -44,13 +47,15 @@ Sandman uses Quickshell's idle monitor with inhibitor support and requests suspe
 - Omarchy Quattro
 - Python 3
 - systemd
+- UPower
+- GLib (`gdbus`)
 
 ## Validate
 
 ```sh
 npm test
 omarchy plugin validate .
-qmllint -I "$OMARCHY_PATH/shell" BarWidget.qml Panel.qml Service.qml
+qmllint -I "$OMARCHY_PATH/shell" BarWidget.qml Panel.qml Service.qml LidService.qml
 ```
 
 ## Remove

@@ -4,6 +4,7 @@ var screensaverPresets = [0, 60, 120, 300, 600, 900, 1800]
 var displayPresets = [0, 60, 120, 300, 600, 900, 1800]
 var lockPresets = [0, 300, 600, 900, 1800, 3600]
 var sleepPresets = [0, 900, 1800, 3600, 7200]
+var lidActions = ["system", "nothing", "display", "sleep", "hibernate"]
 
 var maxTimeoutSeconds = 7 * 24 * 60 * 60
 
@@ -35,6 +36,21 @@ function normalizedSeconds(value, fallback, allowOff) {
   return Math.min(number, maxTimeoutSeconds)
 }
 
+function normalizedLidAction(value) {
+  var action = String(value || "system")
+  return lidActions.indexOf(action) >= 0 ? action : "system"
+}
+
+function lidActionLabel(action) {
+  switch (normalizedLidAction(action)) {
+  case "nothing": return "Do nothing"
+  case "display": return "Display off"
+  case "sleep": return "Sleep"
+  case "hibernate": return "Hibernate"
+  default: return "System default"
+  }
+}
+
 function parseConfig(raw) {
   var parsed = {}
   try { parsed = JSON.parse(String(raw || "{}")) }
@@ -44,7 +60,8 @@ function parseConfig(raw) {
     screensaver: normalizedSeconds(parsed.screensaver, 150, true),
     display: normalizedSeconds(parsed.display, 0, true),
     lock: normalizedSeconds(parsed.lock, 300, true),
-    sleep: normalizedSeconds(parsed.sleep, 0, true)
+    sleep: normalizedSeconds(parsed.sleep, 0, true),
+    lid: normalizedLidAction(parsed.lid)
   }
 }
 

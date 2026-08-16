@@ -51,7 +51,7 @@ class SandmanHelperTest(unittest.TestCase):
         return completed
 
     def test_init_inherits_omarchy_idle_settings_and_disables_sleep(self):
-        expected = {"screensaver": 150, "display": 0, "lock": 300, "sleep": 0}
+        expected = {"screensaver": 150, "display": 0, "lock": 300, "sleep": 0, "lid": "system"}
         self.assertEqual(self.run_helper("init"), expected)
         self.assertEqual(json.loads(self.config.read_text()), expected)
 
@@ -61,7 +61,7 @@ class SandmanHelperTest(unittest.TestCase):
             encoding="utf-8",
         )
 
-        expected = {"screensaver": 150, "display": 0, "lock": 300, "sleep": 3600}
+        expected = {"screensaver": 150, "display": 0, "lock": 300, "sleep": 3600, "lid": "system"}
         self.assertEqual(self.run_helper("init"), expected)
         self.assertEqual(json.loads(self.config.read_text()), expected)
 
@@ -69,7 +69,7 @@ class SandmanHelperTest(unittest.TestCase):
         self.run_helper("init")
         self.assertEqual(
             self.run_helper("set-screensaver", "600"),
-            {"screensaver": 600, "display": 0, "lock": 300, "sleep": 0},
+            {"screensaver": 600, "display": 0, "lock": 300, "sleep": 0, "lid": "system"},
         )
         shell = json.loads(self.shell.read_text())
         self.assertEqual(shell["idle"], {"screensaver": 600, "lock": 300})
@@ -79,7 +79,7 @@ class SandmanHelperTest(unittest.TestCase):
         self.run_helper("init")
         self.assertEqual(
             self.run_helper("set-lock", "900"),
-            {"screensaver": 150, "display": 0, "lock": 900, "sleep": 0},
+            {"screensaver": 150, "display": 0, "lock": 900, "sleep": 0, "lid": "system"},
         )
         shell = json.loads(self.shell.read_text())
         self.assertEqual(shell["idle"], {"screensaver": 150, "lock": 900})
@@ -89,7 +89,7 @@ class SandmanHelperTest(unittest.TestCase):
         self.run_helper("set-lock", "0")
         self.assertEqual(
             self.run_helper("set-screensaver", "0"),
-            {"screensaver": 0, "display": 0, "lock": 0, "sleep": 0},
+            {"screensaver": 0, "display": 0, "lock": 0, "sleep": 0, "lid": "system"},
         )
         shell = json.loads(self.shell.read_text())
         self.assertEqual(
@@ -102,7 +102,7 @@ class SandmanHelperTest(unittest.TestCase):
         before = self.shell.read_text()
         self.assertEqual(
             self.run_helper("set-sleep", "3600"),
-            {"screensaver": 150, "display": 0, "lock": 300, "sleep": 3600},
+            {"screensaver": 150, "display": 0, "lock": 300, "sleep": 3600, "lid": "system"},
         )
         self.assertEqual(self.shell.read_text(), before)
 
@@ -111,10 +111,23 @@ class SandmanHelperTest(unittest.TestCase):
         before = self.shell.read_text()
         self.assertEqual(
             self.run_helper("set-display", "300"),
-            {"screensaver": 150, "display": 300, "lock": 300, "sleep": 0},
+            {"screensaver": 150, "display": 300, "lock": 300, "sleep": 0, "lid": "system"},
         )
         self.assertEqual(self.shell.read_text(), before)
 
+    def test_lid_action_only_changes_sandman_state(self):
+        self.run_helper("init")
+        before = self.shell.read_text()
+        self.assertEqual(
+            self.run_helper("set-lid", "display"),
+            {"screensaver": 150, "display": 0, "lock": 300, "sleep": 0, "lid": "display"},
+        )
+        self.assertEqual(self.shell.read_text(), before)
+
+    def test_invalid_lid_action_is_rejected(self):
+        self.run_helper("init")
+        self.run_helper_expecting_failure("set-lid", "poweroff")
+        self.assertEqual(json.loads(self.config.read_text())["lid"], "system")
 
     def test_invalid_utf8_shell_config_reports_cleanly_and_is_left_intact(self):
         self.run_helper("init")
@@ -181,14 +194,14 @@ class SandmanHelperTest(unittest.TestCase):
         self.shell.unlink()
         self.assertEqual(
             self.run_helper("init"),
-            {"screensaver": 150, "display": 0, "lock": 300, "sleep": 0},
+            {"screensaver": 150, "display": 0, "lock": 300, "sleep": 0, "lid": "system"},
         )
 
     def test_damaged_sandman_config_is_rebuilt_from_shell(self):
         self.config.write_text("{not json", encoding="utf-8")
         self.assertEqual(
             self.run_helper("init"),
-            {"screensaver": 150, "display": 0, "lock": 300, "sleep": 0},
+            {"screensaver": 150, "display": 0, "lock": 300, "sleep": 0, "lid": "system"},
         )
 
 

@@ -55,6 +55,12 @@ Panel {
     return false
   }
 
+  function scrollPanel(delta) {
+    panelFlick.contentY = Math.max(0, Math.min(
+      panelFlick.contentY + delta,
+      Math.max(0, panelFlick.contentHeight - panelFlick.height)))
+  }
+
   function setScreensaver(value) {
     if (root.sandmanService) root.sandmanService.setScreensaver(value)
   }
@@ -183,10 +189,7 @@ Panel {
       onCloseRequested: root.close()
       onTabRequested: function(direction) { root.switchPanel(direction) }
       onMoveRequested: function(dx, dy) {
-        if (dy === 0) return
-        panelFlick.contentY = Math.max(0, Math.min(
-          panelFlick.contentY + dy * Style.space(56),
-          Math.max(0, panelFlick.contentHeight - panelFlick.height)))
+        if (dy !== 0) root.scrollPanel(dy * Style.space(56))
       }
 
       Flickable {
@@ -199,6 +202,14 @@ Panel {
         flickableDirection: Flickable.VerticalFlick
         interactive: contentHeight > height
         ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }
+
+        WheelHandler {
+          onWheel: function(event) {
+            if (event.angleDelta.y === 0) return
+            root.scrollPanel(event.angleDelta.y > 0 ? -Style.space(56) : Style.space(56))
+            event.accepted = true
+          }
+        }
 
         Column {
           id: content

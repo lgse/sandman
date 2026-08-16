@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "id": "lgse.sandman",
   "name": "Sandman",
-  "version": "0.7.0",
+  "version": "0.7.1",
   "author": "Pierre Berube",
   "license": "MIT",
   "description": "Set when your screen rests, locks, and sleeps.",

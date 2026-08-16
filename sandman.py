@@ -6,8 +6,10 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import subprocess
 import sys
 import tempfile
+import time
 from pathlib import Path
 from typing import Any
 
@@ -142,21 +144,75 @@ def initialize() -> dict[str, int]:
     return config
 
 
-def apply_idle_config(config: dict[str, int]) -> None:
-    shell = read_json(shell_path(), {"version": 1}, strict=True)
-    idle = shell.get("idle") if isinstance(shell.get("idle"), dict) else {}
+def effective_idle_timeouts(config: dict[str, int]) -> tuple[int, int]:
     lock_timeout = config["lock"] if config["lock"] > 0 else OFF_TIMEOUT
     screensaver_timeout = (
         config["screensaver"]
         if config["screensaver"] > 0
         else lock_timeout + 1
     )
+    return screensaver_timeout, lock_timeout
+
+
+def apply_idle_config(config: dict[str, int]) -> None:
+    shell = read_json(shell_path(), {"version": 1}, strict=True)
+    idle = shell.get("idle") if isinstance(shell.get("idle"), dict) else {}
+    screensaver_timeout, lock_timeout = effective_idle_timeouts(config)
     shell["idle"] = {
         **idle,
         "screensaver": screensaver_timeout,
         "lock": lock_timeout,
     }
     atomic_write(shell_path(), shell)
+
+
+def rearm_native_idle(config: dict[str, int]) -> None:
+    """Re-register Omarchy's IdleMonitor after changing its timeout.
+
+    Quickshell currently leaves the old idle notification registered when only
+    IdleMonitor.timeout changes. Toggling an enabled service fixes that without
+    restarting the shell. Never override an intentional Stay Awake state.
+    """
+    if os.environ.get("OMARCHY_SHELL_CONFIG_PATH"):
+        return
+
+    screensaver_timeout, lock_timeout = effective_idle_timeouts(config)
+    for _ in range(20):
+        try:
+            completed = subprocess.run(
+                ["omarchy-shell", "idle", "status"],
+                check=True,
+                capture_output=True,
+                text=True,
+                timeout=1,
+            )
+            status = json.loads(completed.stdout)
+        except (FileNotFoundError, subprocess.SubprocessError, json.JSONDecodeError):
+            return
+
+        if not status.get("enabled", False):
+            return
+        if (
+            status.get("screensaver") == screensaver_timeout
+            and status.get("lock") == lock_timeout
+        ):
+            try:
+                subprocess.run(
+                    ["omarchy-shell", "idle", "disable"],
+                    check=True,
+                    capture_output=True,
+                    timeout=1,
+                )
+                subprocess.run(
+                    ["omarchy-shell", "idle", "enable"],
+                    check=True,
+                    capture_output=True,
+                    timeout=1,
+                )
+            except (FileNotFoundError, subprocess.SubprocessError):
+                pass
+            return
+        time.sleep(0.05)
 
 
 def set_screensaver(value: int) -> dict[str, int]:
@@ -167,6 +223,7 @@ def set_screensaver(value: int) -> dict[str, int]:
     config["screensaver"] = seconds(value, DEFAULT_SCREENSAVER, allow_off=True)
     apply_idle_config(config)
     atomic_write(config_path(), config)
+    rearm_native_idle(config)
     return config
 
 
@@ -177,6 +234,7 @@ def set_lock(value: int) -> dict[str, int]:
     config["lock"] = seconds(value, DEFAULT_LOCK, allow_off=True)
     apply_idle_config(config)
     atomic_write(config_path(), config)
+    rearm_native_idle(config)
     return config
 
 

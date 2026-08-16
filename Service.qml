@@ -9,10 +9,11 @@ Item {
   id: root
 
   property var shell: null
-  property var configState: ({ screensaver: 150, lock: 300, sleep: 0 })
+  property var configState: ({ screensaver: 150, display: 0, lock: 300, sleep: 0 })
   property bool saving: false
   property string lastError: ""
   property bool suspendPending: false
+  property bool displaysOff: false
   property bool idleCycleRunning: false
   property var screensaverWindows: ({})
   property int screensaverWindowCount: 0
@@ -21,12 +22,24 @@ Item {
   readonly property string configPath: home + "/.config/omarchy/sandman.json"
   readonly property string screensaverClass: "org.omarchy.screensaver"
   readonly property int screensaverSeconds: Model.normalizedSeconds(configState.screensaver, 150, true)
+  readonly property int displaySeconds: Model.normalizedSeconds(configState.display, 0, true)
   readonly property int lockSeconds: Model.normalizedSeconds(configState.lock, 300, true)
   readonly property int sleepSeconds: Model.normalizedSeconds(configState.sleep, 0, true)
+  readonly property bool displayEnabled: displaySeconds > 0
   readonly property bool sleepEnabled: sleepSeconds > 0
-  readonly property int firstIdleSeconds: sleepEnabled
-    ? (screensaverSeconds > 0 ? Math.min(screensaverSeconds, sleepSeconds) : sleepSeconds)
-    : 1
+  // The screensaver, display-off, and sleep stages are all self-observed here so
+  // the cycle can survive the screensaver's brief activity blip (see below). The
+  // shared monitor fires at the earliest of the enabled stage boundaries.
+  readonly property bool cycleEnabled: displayEnabled || sleepEnabled
+  readonly property int firstIdleSeconds: {
+    if (!cycleEnabled) return 1
+    var candidates = []
+    if (screensaverSeconds > 0) candidates.push(screensaverSeconds)
+    if (displayEnabled) candidates.push(displaySeconds)
+    if (sleepEnabled) candidates.push(sleepSeconds)
+    return Math.min.apply(Math, candidates)
+  }
+  readonly property int displayDelaySeconds: displayEnabled ? Math.max(0, displaySeconds - firstIdleSeconds) : 0
   readonly property int sleepDelaySeconds: sleepEnabled ? Math.max(0, sleepSeconds - firstIdleSeconds) : 0
   readonly property string helperPath: {
     var url = String(Qt.resolvedUrl("sandman.py"))
@@ -48,6 +61,10 @@ Item {
 
   function setLock(seconds) {
     return runHelper(["set-lock", String(seconds)])
+  }
+
+  function setDisplay(seconds) {
+    return runHelper(["set-display", String(seconds)])
   }
 
   function setSleep(seconds) {
@@ -94,33 +111,54 @@ Item {
   }
 
   function startIdleCycle() {
-    if (!root.sleepEnabled || root.idleCycleRunning) return
+    if (!root.cycleEnabled || root.idleCycleRunning) return
     root.idleCycleRunning = true
     resetScreensaverWindows()
 
-    if (root.sleepDelaySeconds === 0) requestSuspend()
-    else {
-      sleepTimer.restart()
-      // Omarchy starts the screensaver at this same idle boundary. It briefly
-      // reports compositor activity while opening, so allow its window event
-      // to arrive before deciding that the user really returned.
-      if (root.screensaverSeconds > 0 && root.firstIdleSeconds === root.screensaverSeconds)
-        screensaverGrace.restart()
+    // Omarchy starts the screensaver at this same idle boundary. It briefly
+    // reports compositor activity while opening, so allow its window event
+    // to arrive before deciding that the user really returned.
+    if (root.screensaverSeconds > 0 && root.firstIdleSeconds === root.screensaverSeconds)
+      screensaverGrace.restart()
+
+    if (root.displayEnabled) {
+      if (root.displayDelaySeconds === 0) turnDisplaysOff()
+      else displayTimer.restart()
+    }
+
+    if (root.sleepEnabled) {
+      if (root.sleepDelaySeconds === 0) requestSuspend()
+      else sleepTimer.restart()
     }
   }
 
   function cancelIdleCycle() {
+    displayTimer.stop()
     sleepTimer.stop()
     screensaverGrace.stop()
     root.idleCycleRunning = false
     resetScreensaverWindows()
+    if (root.displaysOff) turnDisplaysOn()
   }
 
   function handleIdleChanged() {
-    if (sleepMonitor.isIdle) startIdleCycle()
+    if (idleMonitor.isIdle) startIdleCycle()
     else if (root.idleCycleRunning
              && root.screensaverWindowCount === 0
              && !screensaverGrace.running) cancelIdleCycle()
+  }
+
+  function turnDisplaysOff() {
+    if (!root.displayEnabled || displayOffProcess.running) return
+    root.displaysOff = true
+    root.lastError = ""
+    displayOffProcess.running = true
+  }
+
+  function turnDisplaysOn() {
+    root.displaysOff = false
+    if (displayOnProcess.running) return
+    displayOnProcess.running = true
   }
 
   function requestSuspend() {
@@ -131,6 +169,7 @@ Item {
   }
 
   onScreensaverSecondsChanged: cancelIdleCycle()
+  onDisplaySecondsChanged: cancelIdleCycle()
   onSleepSecondsChanged: cancelIdleCycle()
 
   Process {
@@ -170,11 +209,18 @@ Item {
   }
 
   IdleMonitor {
-    id: sleepMonitor
-    enabled: root.sleepEnabled
+    id: idleMonitor
+    enabled: root.cycleEnabled
     timeout: root.firstIdleSeconds
     respectInhibitors: true
     onIsIdleChanged: root.handleIdleChanged()
+  }
+
+  Timer {
+    id: displayTimer
+    interval: root.displayDelaySeconds * 1000
+    repeat: false
+    onTriggered: root.turnDisplaysOff()
   }
 
   Timer {
@@ -188,13 +234,32 @@ Item {
     id: screensaverGrace
     interval: 3000
     repeat: false
-    onTriggered: if (root.idleCycleRunning && !sleepMonitor.isIdle
+    onTriggered: if (root.idleCycleRunning && !idleMonitor.isIdle
                      && root.screensaverWindowCount === 0) root.cancelIdleCycle()
   }
 
   Connections {
     target: Hyprland
     function onRawEvent(event) { root.handleHyprlandEvent(event) }
+  }
+
+  // Hyprland's Lua config parses `hyprctl dispatch` args as Lua, so the classic
+  // `dpms off` form is a syntax error there; use the `hl.dsp` shorthand and fall
+  // back to the classic form for older Hyprland, mirroring omarchy-launch-screensaver.
+  Process {
+    id: displayOffProcess
+    command: ["bash", "-lc", "hyprctl dispatch 'hl.dsp.dpms(\"off\")' || hyprctl dispatch dpms off"]
+    onExited: function(exitCode) {
+      if (exitCode !== 0) {
+        root.displaysOff = false
+        root.lastError = "Could not turn the displays off"
+      }
+    }
+  }
+
+  Process {
+    id: displayOnProcess
+    command: ["bash", "-lc", "hyprctl dispatch 'hl.dsp.dpms(\"on\")' || hyprctl dispatch dpms on"]
   }
 
   Process {
@@ -214,10 +279,13 @@ Item {
     function status(): string {
       return JSON.stringify({
         screensaver: root.screensaverSeconds,
+        display: root.displaySeconds,
         lock: root.lockSeconds,
         sleep: root.sleepSeconds,
-        idle: sleepMonitor.isIdle,
+        idle: idleMonitor.isIdle,
         idleCycleRunning: root.idleCycleRunning,
+        displayDelay: root.displayDelaySeconds,
+        displaysOff: root.displaysOff,
         sleepDelay: root.sleepDelaySeconds,
         screensaverWindows: root.screensaverWindowCount,
         saving: root.saving,
@@ -227,6 +295,7 @@ Item {
     }
 
     function setScreensaver(seconds: int): bool { return root.setScreensaver(seconds) }
+    function setDisplay(seconds: int): bool { return root.setDisplay(seconds) }
     function setLock(seconds: int): bool { return root.setLock(seconds) }
     function setSleep(seconds: int): bool { return root.setSleep(seconds) }
     function refresh(): void { root.refresh() }

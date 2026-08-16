@@ -16,15 +16,20 @@ Panel {
   readonly property color contentForeground: bar ? bar.foreground : Color.foreground
   readonly property string contentFontFamily: bar ? bar.fontFamily : Style.font.family
   readonly property int screensaverSeconds: sandmanService ? sandmanService.screensaverSeconds : 150
+  readonly property int displaySeconds: sandmanService ? sandmanService.displaySeconds : 0
   readonly property int lockSeconds: sandmanService ? sandmanService.lockSeconds : 300
   readonly property int sleepSeconds: sandmanService ? sandmanService.sleepSeconds : 0
   readonly property bool saving: sandmanService ? sandmanService.saving : false
   readonly property bool screensaverUsesPreset: Model.isPreset(screensaverSeconds, Model.screensaverPresets)
+  readonly property bool displayUsesPreset: Model.isPreset(displaySeconds, Model.displayPresets)
   readonly property bool lockUsesPreset: Model.isPreset(lockSeconds, Model.lockPresets)
   readonly property bool sleepUsesPreset: Model.isPreset(sleepSeconds, Model.sleepPresets)
   property bool customEditorOpen: false
   property int customHours: 0
   property int customMinutes: 1
+  property bool customDisplayEditorOpen: false
+  property int customDisplayHours: 0
+  property int customDisplayMinutes: 5
   property bool customLockEditorOpen: false
   property int customLockHours: 0
   property int customLockMinutes: 5
@@ -32,6 +37,7 @@ Panel {
   property int customSleepHours: 0
   property int customSleepMinutes: 15
   readonly property int customTimeoutSeconds: Model.customSeconds(customHours, customMinutes)
+  readonly property int customDisplayTimeoutSeconds: Model.customSeconds(customDisplayHours, customDisplayMinutes)
   readonly property int customLockTimeoutSeconds: Model.customSeconds(customLockHours, customLockMinutes)
   readonly property int customSleepTimeoutSeconds: Model.customSeconds(customSleepHours, customSleepMinutes)
 
@@ -67,6 +73,30 @@ Panel {
 
   function applyCustomTimeout() {
     if (root.customTimeoutSeconds > 0) root.setScreensaver(root.customTimeoutSeconds)
+  }
+
+  function setDisplay(value) {
+    if (root.sandmanService) root.sandmanService.setDisplay(value)
+  }
+
+  function selectDisplayPreset(value) {
+    root.customDisplayEditorOpen = false
+    root.setDisplay(value)
+  }
+
+  function loadCustomDisplayTimeout() {
+    var parts = Model.customParts(root.displaySeconds > 0 ? root.displaySeconds : 300)
+    root.customDisplayHours = parts.hours
+    root.customDisplayMinutes = parts.minutes
+  }
+
+  function openCustomDisplayEditor() {
+    root.loadCustomDisplayTimeout()
+    root.customDisplayEditorOpen = true
+  }
+
+  function applyCustomDisplayTimeout() {
+    if (root.customDisplayTimeoutSeconds > 0) root.setDisplay(root.customDisplayTimeoutSeconds)
   }
 
   function setLock(value) {
@@ -120,9 +150,11 @@ Panel {
   onOpenedChanged: {
     if (!opened) return
     root.customEditorOpen = !root.screensaverUsesPreset
+    root.customDisplayEditorOpen = !root.displayUsesPreset
     root.customLockEditorOpen = !root.lockUsesPreset
     root.customSleepEditorOpen = !root.sleepUsesPreset
     if (root.customEditorOpen) root.loadCustomTimeout()
+    if (root.customDisplayEditorOpen) root.loadCustomDisplayTimeout()
     if (root.customLockEditorOpen) root.loadCustomLockTimeout()
     if (root.customSleepEditorOpen) root.loadCustomSleepTimeout()
   }
@@ -173,7 +205,7 @@ Panel {
             }
 
             Text {
-              text: Model.statusSummary(root.screensaverSeconds, root.lockSeconds, root.sleepSeconds)
+              text: Model.statusSummary(root.screensaverSeconds, root.displaySeconds, root.lockSeconds, root.sleepSeconds)
               color: Util.alpha(root.contentForeground, 0.64)
               font.family: root.contentFontFamily
               font.pixelSize: Style.font.caption
@@ -286,6 +318,118 @@ Panel {
               && root.lockSeconds <= root.screensaverSeconds
             width: parent.width
             text: "Auto-lock is set before the screen saver can appear."
+            color: Color.urgent
+            font.family: root.contentFontFamily
+            font.pixelSize: Style.font.caption
+            wrapMode: Text.WordWrap
+          }
+        }
+
+        PanelSeparator { width: parent.width }
+
+        Column {
+          width: parent.width
+          spacing: Style.space(7)
+
+          PanelSectionHeader {
+            width: parent.width
+            text: "DISPLAYS OFF"
+            foreground: root.contentForeground
+            fontFamily: root.contentFontFamily
+          }
+
+          Text {
+            width: parent.width
+            text: "Turn off the displays after inactivity"
+            color: Util.alpha(root.contentForeground, 0.64)
+            font.family: root.contentFontFamily
+            font.pixelSize: Style.font.caption
+          }
+
+          Grid {
+            id: displayGrid
+            width: parent.width
+            columns: 3
+            columnSpacing: Style.space(6)
+            rowSpacing: Style.space(6)
+
+            Repeater {
+              model: Model.displayPresets
+
+              Button {
+                required property var modelData
+                width: (displayGrid.width - displayGrid.columnSpacing * 2) / 3
+                text: Model.formatDuration(modelData)
+                selected: !root.customDisplayEditorOpen
+                  && root.displaySeconds === Number(modelData)
+                enabled: !root.saving
+                focusable: true
+                bordered: true
+                foreground: root.contentForeground
+                fontFamily: root.contentFontFamily
+                onClicked: root.selectDisplayPreset(Number(modelData))
+              }
+            }
+
+            Button {
+              width: (displayGrid.width - displayGrid.columnSpacing * 2) / 3
+              text: "Custom"
+              selected: root.customDisplayEditorOpen || !root.displayUsesPreset
+              enabled: !root.saving
+              focusable: true
+              bordered: true
+              foreground: root.contentForeground
+              fontFamily: root.contentFontFamily
+              onClicked: root.openCustomDisplayEditor()
+            }
+          }
+
+          Row {
+            visible: root.customDisplayEditorOpen
+            width: parent.width
+            spacing: Style.space(8)
+
+            NumberField {
+              label: "Hours"
+              value: root.customDisplayHours
+              from: 0
+              to: 24
+              fieldWidth: Style.space(104)
+              foreground: root.contentForeground
+              fontFamily: root.contentFontFamily
+              onModified: function(value) { root.customDisplayHours = value }
+            }
+
+            NumberField {
+              label: "Minutes"
+              value: root.customDisplayMinutes
+              from: 0
+              to: 59
+              fieldWidth: Style.space(104)
+              foreground: root.contentForeground
+              fontFamily: root.contentFontFamily
+              onModified: function(value) { root.customDisplayMinutes = value }
+            }
+
+            Button {
+              anchors.bottom: parent.bottom
+              width: parent.width - x
+              text: "Apply"
+              enabled: !root.saving && root.customDisplayTimeoutSeconds > 0
+              focusable: true
+              bordered: true
+              foreground: root.contentForeground
+              fontFamily: root.contentFontFamily
+              onClicked: root.applyCustomDisplayTimeout()
+            }
+          }
+
+          Text {
+            visible: root.screensaverSeconds > 0
+              && root.displaySeconds > 0
+              && root.displaySeconds <= root.screensaverSeconds
+            width: parent.width
+            text: "Displays turn off before the screen saver can appear."
             color: Color.urgent
             font.family: root.contentFontFamily
             font.pixelSize: Style.font.caption

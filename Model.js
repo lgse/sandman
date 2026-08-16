@@ -1,6 +1,7 @@
 .pragma library
 
 var screensaverPresets = [0, 60, 120, 300, 600, 900, 1800]
+var displayPresets = [0, 60, 120, 300, 600, 900, 1800]
 var lockPresets = [0, 300, 600, 900, 1800, 3600]
 var sleepPresets = [0, 900, 1800, 3600, 7200]
 
@@ -19,6 +20,7 @@ function parseConfig(raw) {
 
   return {
     screensaver: normalizedSeconds(parsed.screensaver, 150, true),
+    display: normalizedSeconds(parsed.display, 0, true),
     lock: normalizedSeconds(parsed.lock, 300, true),
     sleep: normalizedSeconds(parsed.sleep, 0, true)
   }
@@ -62,8 +64,9 @@ function customSeconds(hours, minutes) {
   return (safeHours * 60 + safeMinutes) * 60
 }
 
-function statusSummary(screensaver, lock, sleep) {
+function statusSummary(screensaver, display, lock, sleep) {
   return "Screen " + formatDuration(screensaver)
+    + " · Displays " + formatDuration(display)
     + " · Lock " + formatDuration(lock)
     + " · Sleep " + formatDuration(sleep)
 }

@@ -18,8 +18,16 @@ Item {
   property bool displayOff: false
   property bool displayWakePending: false
   property string powerAction: ""
+  property bool monitorRestarting: false
 
   readonly property bool managed: action !== "system"
+  // Non-power lid actions must also block sleep. logind can emit
+  // PrepareForSleep for a lid close before the lid action is blocked, and
+  // Omarchy's sleep monitor responds by locking the session. Blocking sleep for
+  // Do nothing / Display off prevents that false pre-suspend lock while still
+  // allowing Sandman's Sleep / Hibernate actions to request power transitions.
+  readonly property bool inhibitSleepForLid: action === "nothing" || action === "display"
+  readonly property string inhibitorWhat: inhibitSleepForLid ? "handle-lid-switch:sleep" : "handle-lid-switch"
   readonly property bool hibernateAvailable: hibernateCapability === "yes"
 
   signal errorOccurred(string message)
@@ -60,7 +68,7 @@ Item {
     }
     root.displayOff = true
     root.displayWakePending = false
-    displayOffProcess.command = ["hyprctl", "dispatch", "dpms", "off", root.internalDisplay]
+    displayOffProcess.command = ["hyprctl", "dispatch", "hl.dsp.dpms({ action = \"off\", monitor = \"" + root.internalDisplay + "\" })"]
     displayOffProcess.running = true
   }
 
@@ -73,7 +81,7 @@ Item {
     root.displayOff = false
     root.displayWakePending = false
     if (!root.internalDisplay || displayOnProcess.running) return
-    displayOnProcess.command = ["hyprctl", "dispatch", "dpms", "on", root.internalDisplay]
+    displayOnProcess.command = ["hyprctl", "dispatch", "hl.dsp.dpms({ action = \"enable\", monitor = \"" + root.internalDisplay + "\" })"]
     displayOnProcess.running = true
   }
 
@@ -94,11 +102,33 @@ Item {
     powerProcess.running = true
   }
 
+  function ensureMonitorRunning() {
+    if (root.managed && root.present) {
+      if (!monitorProcess.running && !root.monitorRestarting) monitorProcess.running = true
+    } else if (monitorProcess.running) {
+      monitorProcess.running = false
+    }
+  }
+
+  function restartMonitor() {
+    if (!monitorProcess.running) {
+      ensureMonitorRunning()
+      return
+    }
+    root.monitorRestarting = true
+    monitorProcess.running = false
+    monitorRestartTimer.restart()
+  }
+
   onActionChanged: {
     if (root.displayOff && root.action !== "display") root.turnDisplayOn()
-    root.stateKnown = false
     root.scheduleStateQuery()
+    if (root.stateKnown && root.closed) Qt.callLater(root.handleClosed)
   }
+
+  onInhibitorWhatChanged: restartMonitor()
+  onManagedChanged: ensureMonitorRunning()
+  onPresentChanged: ensureMonitorRunning()
 
   Process {
     id: capabilityProcess
@@ -165,18 +195,35 @@ Item {
     }
   }
 
+  Timer {
+    id: monitorRestartTimer
+    interval: 50
+    repeat: false
+    onTriggered: {
+      root.monitorRestarting = false
+      root.ensureMonitorRunning()
+    }
+  }
+
+  Timer {
+    interval: 1000
+    repeat: true
+    running: true
+    onTriggered: root.ensureMonitorRunning()
+  }
+
   Process {
     id: monitorProcess
-    running: root.managed && root.present
-    command: ["systemd-inhibit", "--what=handle-lid-switch", "--who=Sandman", "--why=Handle the configured lid-close action", "--mode=block", "gdbus", "monitor", "--system", "--dest", "org.freedesktop.login1", "--object-path", "/org/freedesktop/login1"]
+    command: ["systemd-inhibit", "--what=" + root.inhibitorWhat, "--who=Sandman", "--why=Handle the configured lid-close action", "--mode=block", "gdbus", "monitor", "--system", "--dest", "org.freedesktop.login1", "--object-path", "/org/freedesktop/login1"]
     stdout: SplitParser {
       onRead: function(line) {
         if (String(line).indexOf("LidClosed") >= 0) root.scheduleStateQuery()
       }
     }
     onExited: function(exitCode) {
-      if (root.managed && root.present && exitCode !== 0)
+      if (!root.monitorRestarting && root.managed && root.present && exitCode !== 0)
         root.errorOccurred("Could not monitor laptop lid events")
+      if (!root.monitorRestarting) Qt.callLater(root.ensureMonitorRunning)
     }
   }
 

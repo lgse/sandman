@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import subprocess
 import sys
 import tempfile
@@ -21,6 +22,17 @@ DEFAULT_LID_ACTION = "system"
 LID_ACTIONS = ("system", "nothing", "display", "sleep", "hibernate")
 OFF_TIMEOUT = 7 * 24 * 60 * 60
 MAX_TIMEOUT = OFF_TIMEOUT
+HYPR_OVERRIDE_BEGIN = "-- BEGIN Sandman lid action override"
+HYPR_OVERRIDE_END = "-- END Sandman lid action override"
+HYPR_OVERRIDE_BLOCK = f"""{HYPR_OVERRIDE_BEGIN}
+-- Sandman manages laptop lid-close actions. Omarchy's default lid-close
+-- binding locks immediately on lid close, before Sandman can apply Do nothing
+-- or Display off, so replace it with monitor/clamshell reconciliation only.
+hl.unbind("switch:on:Lid Switch")
+o.bind("switch:on:Lid Switch", nil, "omarchy-hyprland-monitor-clamshell", {{ locked = true }})
+{HYPR_OVERRIDE_END}
+"""
+MANAGED_LID_ACTIONS = {"nothing", "display", "sleep", "hibernate"}
 
 
 class ConfigError(Exception):
@@ -35,6 +47,11 @@ def shell_path() -> Path:
 def config_path() -> Path:
     override = os.environ.get("SANDMAN_CONFIG_PATH")
     return Path(override).expanduser() if override else Path.home() / ".config/omarchy/sandman.json"
+
+
+def hypr_bindings_path() -> Path:
+    override = os.environ.get("SANDMAN_HYPR_BINDINGS_PATH")
+    return Path(override).expanduser() if override else Path.home() / ".config/hypr/bindings.lua"
 
 
 def read_json(
@@ -95,15 +112,14 @@ def seconds(value: Any, fallback: int, *, allow_off: bool = False) -> int:
     return min(result, MAX_TIMEOUT)
 
 
-def atomic_write(path: Path, value: dict[str, Any]) -> None:
+def atomic_write_text(path: Path, text: str) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     mode = path.stat().st_mode & 0o777 if path.exists() else 0o600
     fd, temporary = tempfile.mkstemp(prefix=f".{path.name}.", dir=path.parent)
     temporary_path = Path(temporary)
     try:
         with os.fdopen(fd, "w", encoding="utf-8") as stream:
-            json.dump(value, stream, indent=2)
-            stream.write("\n")
+            stream.write(text)
             stream.flush()
             os.fsync(stream.fileno())
         os.chmod(temporary_path, mode)
@@ -112,8 +128,56 @@ def atomic_write(path: Path, value: dict[str, Any]) -> None:
         temporary_path.unlink(missing_ok=True)
 
 
+def atomic_write(path: Path, value: dict[str, Any]) -> None:
+    text = json.dumps(value, indent=2) + "\n"
+    atomic_write_text(path, text)
+
+
 def lid_action(value: Any) -> str:
     return value if isinstance(value, str) and value in LID_ACTIONS else DEFAULT_LID_ACTION
+
+
+def remove_hypr_override(text: str) -> str:
+    pattern = re.compile(
+        rf"\n?{re.escape(HYPR_OVERRIDE_BEGIN)}.*?{re.escape(HYPR_OVERRIDE_END)}\n?",
+        re.DOTALL,
+    )
+    return pattern.sub("\n", text).rstrip() + ("\n" if text else "")
+
+
+def sync_hypr_lid_override(action: str) -> None:
+    """Install/remove the Hyprland lid binding override for managed actions."""
+    if os.environ.get("SANDMAN_DISABLE_HYPR_SYNC"):
+        return
+
+    path = hypr_bindings_path()
+    try:
+        original = path.read_text(encoding="utf-8")
+    except FileNotFoundError:
+        original = ""
+    except (OSError, UnicodeError):
+        return
+
+    without_override = remove_hypr_override(original)
+    if action in MANAGED_LID_ACTIONS:
+        next_text = without_override.rstrip() + "\n\n" + HYPR_OVERRIDE_BLOCK
+    else:
+        next_text = without_override
+
+    if next_text == original:
+        return
+
+    try:
+        atomic_write_text(path, next_text)
+    except OSError:
+        return
+
+    if os.environ.get("SANDMAN_SKIP_HYPR_RELOAD") or os.environ.get("SANDMAN_HYPR_BINDINGS_PATH"):
+        return
+    try:
+        subprocess.run(["hyprctl", "reload"], check=False, capture_output=True, timeout=2)
+    except (FileNotFoundError, subprocess.SubprocessError):
+        pass
 
 
 def current_config() -> dict[str, int | str]:
@@ -148,6 +212,7 @@ def initialize() -> dict[str, int | str]:
     config = current_config()
     # Always persist the normalized shape so existing installs gain new fields.
     atomic_write(config_path(), config)
+    sync_hypr_lid_override(str(config["lid"]))
     return config
 
 
@@ -263,6 +328,7 @@ def set_lid(value: str) -> dict[str, int | str]:
     config = current_config()
     config["lid"] = value
     atomic_write(config_path(), config)
+    sync_hypr_lid_override(value)
     return config
 
 

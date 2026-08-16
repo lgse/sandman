@@ -16,6 +16,8 @@ class SandmanHelperTest(unittest.TestCase):
         base = Path(self.temporary.name)
         self.shell = base / "shell.json"
         self.config = base / "sandman.json"
+        self.hypr_bindings = base / "bindings.lua"
+        self.hypr_bindings.write_text("-- user bindings\n", encoding="utf-8")
         self.shell.write_text(
             json.dumps({"version": 1, "idle": {"screensaver": 150, "lock": 300}, "unrelated": True}),
             encoding="utf-8",
@@ -24,6 +26,8 @@ class SandmanHelperTest(unittest.TestCase):
             **os.environ,
             "OMARCHY_SHELL_CONFIG_PATH": str(self.shell),
             "SANDMAN_CONFIG_PATH": str(self.config),
+            "SANDMAN_HYPR_BINDINGS_PATH": str(self.hypr_bindings),
+            "SANDMAN_SKIP_HYPR_RELOAD": "1",
         }
 
     def tearDown(self):
@@ -115,7 +119,7 @@ class SandmanHelperTest(unittest.TestCase):
         )
         self.assertEqual(self.shell.read_text(), before)
 
-    def test_lid_action_only_changes_sandman_state(self):
+    def test_lid_action_installs_hyprland_override(self):
         self.run_helper("init")
         before = self.shell.read_text()
         self.assertEqual(
@@ -123,6 +127,24 @@ class SandmanHelperTest(unittest.TestCase):
             {"screensaver": 150, "display": 0, "lock": 300, "sleep": 0, "lid": "display"},
         )
         self.assertEqual(self.shell.read_text(), before)
+        bindings = self.hypr_bindings.read_text(encoding="utf-8")
+        self.assertIn("BEGIN Sandman lid action override", bindings)
+        self.assertIn('hl.unbind("switch:on:Lid Switch")', bindings)
+        self.assertIn("omarchy-hyprland-monitor-clamshell", bindings)
+
+    def test_system_lid_action_removes_hyprland_override(self):
+        self.config.write_text(json.dumps({"lid": "display"}), encoding="utf-8")
+        self.run_helper("init")
+        self.assertIn(
+            "BEGIN Sandman lid action override",
+            self.hypr_bindings.read_text(encoding="utf-8"),
+        )
+
+        self.run_helper("set-lid", "system")
+
+        bindings = self.hypr_bindings.read_text(encoding="utf-8")
+        self.assertNotIn("BEGIN Sandman lid action override", bindings)
+        self.assertEqual(bindings, "-- user bindings\n")
 
     def test_invalid_lid_action_is_rejected(self):
         self.run_helper("init")

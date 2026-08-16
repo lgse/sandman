@@ -30,7 +30,7 @@ omarchy bar plugin add lgse.sandman --section right
 
 Click the Zzz icon in the bar and choose a lid-close action or a timeout for each idle stage. Presets apply immediately; Custom accepts hours and minutes and applies on confirmation for screen saver, displays off, auto-lock, and sleep. Existing values that do not match a preset—including Omarchy's 2½-minute screen-saver default—open as Custom. Changes survive shell reloads and reboots.
 
-The lid controls appear only when UPower reports a laptop lid. **System default** leaves logind in charge. The other actions use a low-level lid-switch inhibitor while Sandman is running, then handle the event without changing system-wide logind configuration. **Display off** targets the internal eDP/LVDS/DSI output and turns it back on when the lid opens. Hibernate is selectable only when logind reports that it is available.
+The lid controls appear only when UPower reports a laptop lid. **System default** leaves logind in charge. The other actions use a low-level lid-switch inhibitor while Sandman is running, then handle the event without changing system-wide logind configuration. For managed lid actions, Sandman also installs a small managed block in `~/.config/hypr/bindings.lua` that replaces Omarchy's default `switch:on:Lid Switch` binding. Omarchy's default binding locks immediately on lid close, before Sandman can apply **Do nothing** or **Display off**, so Sandman unbinds it and keeps only Omarchy's clamshell monitor reconciliation. Selecting **System default** removes Sandman's managed Hyprland block again. **Display off** targets the internal eDP/LVDS/DSI output and turns it back on when the lid opens. Hibernate is selectable only when logind reports that it is available.
 
 Sandman stores its state in `~/.config/omarchy/sandman.json`. The effective screen-saver and auto-lock values remain in Omarchy's standard `~/.config/omarchy/shell.json`; lid actions and the displays-off and sleep timers are handled by Sandman itself and are not written there.
 
@@ -65,7 +65,7 @@ omarchy plugin remove lgse.sandman
 rm -f ~/.config/omarchy/sandman.json
 ```
 
-Removing Sandman does not revert the screen-saver and lock timeouts already written to `shell.json`.
+Removing Sandman does not revert the screen-saver and lock timeouts already written to `shell.json`. If Sandman is removed while a managed lid action is selected, remove the managed block between `-- BEGIN Sandman lid action override` and `-- END Sandman lid action override` from `~/.config/hypr/bindings.lua`, or reinstall Sandman and select **System default** before removing it.
 
 This matters if either setting was left **Off**. Off is stored in `shell.json` as a
 seven-day timeout, so removing Sandman while auto-lock is Off leaves a machine that

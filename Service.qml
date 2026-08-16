@@ -9,7 +9,7 @@ Item {
   id: root
 
   property var shell: null
-  property var configState: ({ screensaver: 150, display: 0, lock: 300, sleep: 0 })
+  property var configState: ({ screensaver: 150, display: 0, lock: 300, sleep: 0, lid: "system" })
   property bool saving: false
   property string lastError: ""
   property bool suspendPending: false
@@ -26,6 +26,11 @@ Item {
   readonly property int displaySeconds: Model.normalizedSeconds(configState.display, 0, true)
   readonly property int lockSeconds: Model.normalizedSeconds(configState.lock, 300, true)
   readonly property int sleepSeconds: Model.normalizedSeconds(configState.sleep, 0, true)
+  readonly property string lidAction: Model.normalizedLidAction(configState.lid)
+  readonly property bool lidPresent: lidService.present
+  readonly property bool lidClosed: lidService.closed
+  readonly property string internalDisplay: lidService.internalDisplay
+  readonly property bool hibernateAvailable: lidService.hibernateAvailable
   readonly property bool displayEnabled: displaySeconds > 0
   readonly property bool sleepEnabled: sleepSeconds > 0
   // The screensaver, display-off, and sleep stages are all self-observed here so
@@ -79,6 +84,15 @@ Item {
 
   function setSleep(seconds) {
     return runSetter("set-sleep", seconds)
+  }
+
+  function setLid(action) {
+    var value = String(action)
+    if (Model.lidActions.indexOf(value) < 0) {
+      root.lastError = "Ignored an invalid lid action"
+      return false
+    }
+    return runHelper(["set-lid", value])
   }
 
   function refresh() {
@@ -198,6 +212,12 @@ Item {
   onDisplaySecondsChanged: rearmIdleMonitor()
   onSleepSecondsChanged: rearmIdleMonitor()
 
+  LidService {
+    id: lidService
+    action: root.lidAction
+    onErrorOccurred: function(message) { root.lastError = message }
+  }
+
   Process {
     id: initializeProcess
     command: ["python3", root.helperPath, "init"]
@@ -299,6 +319,7 @@ Item {
   Process {
     id: displayOnProcess
     command: ["bash", "-lc", "hyprctl dispatch 'hl.dsp.dpms({ action = \"on\" })' || hyprctl dispatch dpms on"]
+    onExited: lidService.reapplyAfterGlobalDisplayOn()
   }
 
   Process {
@@ -321,6 +342,11 @@ Item {
         display: root.displaySeconds,
         lock: root.lockSeconds,
         sleep: root.sleepSeconds,
+        lid: root.lidAction,
+        lidPresent: root.lidPresent,
+        lidClosed: root.lidClosed,
+        internalDisplay: root.internalDisplay,
+        hibernateAvailable: root.hibernateAvailable,
         idle: idleMonitor.isIdle,
         idleCycleRunning: root.idleCycleRunning,
         displayDelay: root.displayDelaySeconds,
@@ -337,6 +363,7 @@ Item {
     function setDisplay(seconds: int): bool { return root.setDisplay(seconds) }
     function setLock(seconds: int): bool { return root.setLock(seconds) }
     function setSleep(seconds: int): bool { return root.setSleep(seconds) }
+    function setLid(action: string): bool { return root.setLid(action) }
     function refresh(): void { root.refresh() }
   }
 }

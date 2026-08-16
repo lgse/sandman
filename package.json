@@ -1,8 +1,8 @@
 {
   "name": "sandman",
-  "version": "0.7.1",
+  "version": "0.8.0",
   "private": true,
-  "description": "Set when your screen rests, locks, and sleeps.",
+  "description": "Set lid-close actions and when your screen rests, locks, and sleeps.",
   "scripts": {
     "test": "node --test && python3 -m unittest discover -s test -p 'test_*.py'"
   },

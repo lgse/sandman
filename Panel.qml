@@ -1,4 +1,5 @@
 import QtQuick
+import QtQuick.Controls
 import Quickshell
 import qs.Commons
 import qs.Ui
@@ -19,6 +20,9 @@ Panel {
   readonly property int displaySeconds: sandmanService ? sandmanService.displaySeconds : 0
   readonly property int lockSeconds: sandmanService ? sandmanService.lockSeconds : 300
   readonly property int sleepSeconds: sandmanService ? sandmanService.sleepSeconds : 0
+  readonly property string lidAction: sandmanService ? sandmanService.lidAction : "system"
+  readonly property bool lidPresent: sandmanService ? sandmanService.lidPresent : false
+  readonly property bool hibernateAvailable: sandmanService ? sandmanService.hibernateAvailable : false
   readonly property bool saving: sandmanService ? sandmanService.saving : false
   readonly property bool screensaverUsesPreset: Model.isPreset(screensaverSeconds, Model.screensaverPresets)
   readonly property bool displayUsesPreset: Model.isPreset(displaySeconds, Model.displayPresets)
@@ -49,6 +53,12 @@ Panel {
     if (root.bar && typeof root.bar.switchPanelFrom === "function")
       return root.bar.switchPanelFrom(root.barIdentity, direction)
     return false
+  }
+
+  function scrollPanel(delta) {
+    panelFlick.contentY = Math.max(0, Math.min(
+      panelFlick.contentY + delta,
+      Math.max(0, panelFlick.contentHeight - panelFlick.height)))
   }
 
   function setScreensaver(value) {
@@ -127,6 +137,10 @@ Panel {
     if (root.sandmanService) root.sandmanService.setSleep(value)
   }
 
+  function setLid(action) {
+    if (root.sandmanService) root.sandmanService.setLid(action)
+  }
+
   function selectSleepPreset(value) {
     root.customSleepEditorOpen = false
     root.setSleep(value)
@@ -174,11 +188,33 @@ Panel {
       anchors.fill: parent
       onCloseRequested: root.close()
       onTabRequested: function(direction) { root.switchPanel(direction) }
+      onMoveRequested: function(dx, dy) {
+        if (dy !== 0) root.scrollPanel(dy * Style.space(56))
+      }
 
-      Column {
-        id: content
-        width: parent.width
-        spacing: Style.space(12)
+      Flickable {
+        id: panelFlick
+        anchors.fill: parent
+        contentWidth: width
+        contentHeight: content.implicitHeight
+        clip: true
+        boundsBehavior: Flickable.StopAtBounds
+        flickableDirection: Flickable.VerticalFlick
+        interactive: contentHeight > height
+        ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }
+
+        WheelHandler {
+          onWheel: function(event) {
+            if (event.angleDelta.y === 0) return
+            root.scrollPanel(event.angleDelta.y > 0 ? -Style.space(56) : Style.space(56))
+            event.accepted = true
+          }
+        }
+
+        Column {
+          id: content
+          width: panelFlick.width
+          spacing: Style.space(12)
 
         Row {
           anchors.horizontalCenter: parent.horizontalCenter
@@ -214,6 +250,58 @@ Panel {
         }
 
         PanelSeparator { width: parent.width }
+
+        Column {
+          visible: root.lidPresent
+          width: parent.width
+          spacing: Style.space(7)
+
+          PanelSectionHeader {
+            width: parent.width
+            text: "LID CLOSE"
+            foreground: root.contentForeground
+            fontFamily: root.contentFontFamily
+          }
+
+          Text {
+            width: parent.width
+            text: "Choose what happens when the laptop lid closes"
+            color: Util.alpha(root.contentForeground, 0.64)
+            font.family: root.contentFontFamily
+            font.pixelSize: Style.font.caption
+          }
+
+          Grid {
+            id: lidGrid
+            width: parent.width
+            columns: 3
+            columnSpacing: Style.space(6)
+            rowSpacing: Style.space(6)
+
+            Repeater {
+              model: Model.lidActions
+
+              Button {
+                required property var modelData
+                width: (lidGrid.width - lidGrid.columnSpacing * 2) / 3
+                text: Model.lidActionLabel(modelData)
+                selected: root.lidAction === String(modelData)
+                enabled: !root.saving
+                  && (String(modelData) !== "hibernate" || root.hibernateAvailable)
+                focusable: true
+                bordered: true
+                foreground: root.contentForeground
+                fontFamily: root.contentFontFamily
+                onClicked: root.setLid(String(modelData))
+              }
+            }
+          }
+        }
+
+        PanelSeparator {
+          visible: root.lidPresent
+          width: parent.width
+        }
 
         Column {
           width: parent.width
@@ -649,15 +737,16 @@ Panel {
           }
         }
 
-        Text {
-          visible: root.sandmanService && root.sandmanService.lastError !== ""
-          width: parent.width
-          text: root.sandmanService ? root.sandmanService.lastError : ""
-          color: Color.urgent
-          font.family: root.contentFontFamily
-          font.pixelSize: Style.font.caption
-          horizontalAlignment: Text.AlignHCenter
-          wrapMode: Text.WordWrap
+          Text {
+            visible: root.sandmanService && root.sandmanService.lastError !== ""
+            width: parent.width
+            text: root.sandmanService ? root.sandmanService.lastError : ""
+            color: Color.urgent
+            font.family: root.contentFontFamily
+            font.pixelSize: Style.font.caption
+            horizontalAlignment: Text.AlignHCenter
+            wrapMode: Text.WordWrap
+          }
         }
       }
     }

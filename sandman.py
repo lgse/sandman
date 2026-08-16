@@ -18,6 +18,7 @@ DEFAULT_SCREENSAVER = 150
 DEFAULT_DISPLAY = 0
 DEFAULT_LOCK = 300
 DEFAULT_SLEEP = 0
+DEFAULT_HIBERNATE = 0
 DEFAULT_LID_ACTION = "system"
 LID_ACTIONS = ("system", "nothing", "display", "sleep", "hibernate")
 OFF_TIMEOUT = 7 * 24 * 60 * 60
@@ -33,6 +34,7 @@ o.bind("switch:on:Lid Switch", nil, "omarchy-hyprland-monitor-clamshell", {{ loc
 {HYPR_OVERRIDE_END}
 """
 MANAGED_LID_ACTIONS = {"nothing", "display", "sleep", "hibernate"}
+SYSTEMD_SLEEP_CONFIG = Path("/etc/systemd/sleep.conf.d/90-sandman.conf")
 
 
 class ConfigError(Exception):
@@ -52,6 +54,16 @@ def config_path() -> Path:
 def hypr_bindings_path() -> Path:
     override = os.environ.get("SANDMAN_HYPR_BINDINGS_PATH")
     return Path(override).expanduser() if override else Path.home() / ".config/hypr/bindings.lua"
+
+
+def systemd_sleep_config_path() -> Path:
+    override = os.environ.get("SANDMAN_SYSTEMD_SLEEP_CONFIG_PATH")
+    return Path(override).expanduser() if override else SYSTEMD_SLEEP_CONFIG
+
+
+def diagnostic_path(environment_name: str, default: str) -> Path:
+    override = os.environ.get(environment_name)
+    return Path(override).expanduser() if override else Path(default)
 
 
 def read_json(
@@ -204,6 +216,7 @@ def current_config() -> dict[str, int | str]:
         "display": seconds(stored.get("display"), DEFAULT_DISPLAY, allow_off=True),
         "lock": stored_lock,
         "sleep": seconds(stored.get("sleep"), DEFAULT_SLEEP, allow_off=True),
+        "hibernate": seconds(stored.get("hibernate"), DEFAULT_HIBERNATE, allow_off=True),
         "lid": lid_action(stored.get("lid")),
     }
 
@@ -324,6 +337,126 @@ def set_sleep(value: int) -> dict[str, int | str]:
     return config
 
 
+def set_hibernate(value: int) -> dict[str, int | str]:
+    value = seconds(value, DEFAULT_HIBERNATE, allow_off=True)
+    config = current_config()
+    config["hibernate"] = value
+    atomic_write(config_path(), config)
+    return config
+
+
+def hibernate_diagnostics() -> dict[str, Any]:
+    """Report safe, read-only checks for common hibernation prerequisites."""
+    issues: list[str] = []
+
+    power_state_path = diagnostic_path("SANDMAN_POWER_STATE_PATH", "/sys/power/state")
+    resume_path = diagnostic_path("SANDMAN_POWER_RESUME_PATH", "/sys/power/resume")
+    swaps_path = diagnostic_path("SANDMAN_PROC_SWAPS_PATH", "/proc/swaps")
+    meminfo_path = diagnostic_path("SANDMAN_PROC_MEMINFO_PATH", "/proc/meminfo")
+    lockdown_path = diagnostic_path(
+        "SANDMAN_LOCKDOWN_PATH", "/sys/kernel/security/lockdown"
+    )
+    efi_path = diagnostic_path("SANDMAN_EFI_PATH", "/sys/firmware/efi")
+
+    try:
+        kernel_hibernate = "disk" in power_state_path.read_text(encoding="utf-8").split()
+    except (OSError, UnicodeError):
+        kernel_hibernate = False
+    if not kernel_hibernate:
+        issues.append("The kernel does not advertise hibernation support.")
+
+    memory_kib = 0
+    try:
+        for line in meminfo_path.read_text(encoding="utf-8").splitlines():
+            if line.startswith("MemTotal:"):
+                memory_kib = int(line.split()[1])
+                break
+    except (OSError, UnicodeError, ValueError, IndexError):
+        pass
+
+    suitable_swap_kib = 0
+    try:
+        lines = swaps_path.read_text(encoding="utf-8").splitlines()[1:]
+        for line in lines:
+            fields = line.split()
+            if len(fields) >= 3 and not fields[0].startswith("/dev/zram"):
+                suitable_swap_kib += int(fields[2])
+    except (OSError, UnicodeError, ValueError):
+        pass
+    if suitable_swap_kib == 0:
+        issues.append(
+            "No disk-backed swap is active. Configure a swap file or partition "
+            "large enough for hibernation; zram alone cannot store the image."
+        )
+    elif memory_kib and suitable_swap_kib < memory_kib:
+        issues.append(
+            "Disk-backed swap is smaller than RAM. Hibernation may need a larger "
+            "swap area when memory use is high."
+        )
+
+    try:
+        resume_value = resume_path.read_text(encoding="utf-8").strip()
+    except (OSError, UnicodeError):
+        resume_value = ""
+    resume_configured = bool(resume_value and resume_value != "0:0")
+    efi_available = efi_path.is_dir()
+    if not resume_configured and not efi_available:
+        issues.append(
+            "No kernel resume device is configured and EFI resume discovery is unavailable."
+        )
+
+    lockdown_mode = "unknown"
+    try:
+        lockdown = lockdown_path.read_text(encoding="utf-8")
+        selected = re.search(r"\[([^]]+)]", lockdown)
+        lockdown_mode = selected.group(1) if selected else lockdown.strip() or "unknown"
+    except (OSError, UnicodeError):
+        pass
+    if lockdown_mode == "confidentiality":
+        issues.append("Kernel lockdown confidentiality mode can prevent hibernation.")
+
+    if not issues:
+        issues.append(
+            "The basic checks passed, but logind still reports hibernation as unavailable. "
+            "Check system logs and firmware support."
+        )
+
+    return {
+        "kernelHibernate": kernel_hibernate,
+        "memoryKiB": memory_kib,
+        "suitableSwapKiB": suitable_swap_kib,
+        "resumeConfigured": resume_configured,
+        "efiAvailable": efi_available,
+        "lockdownMode": lockdown_mode,
+        "issues": issues,
+        "summary": " ".join(issues),
+    }
+
+
+def configure_hibernate(value: int) -> None:
+    """Set systemd's suspend-then-hibernate delay.
+
+    systemd owns the RTC wake alarm needed while the computer is suspended, so
+    this drop-in is necessarily system-wide. The normal UI invokes this command
+    through pkexec. Tests may redirect the path without requiring privileges.
+    """
+    path = systemd_sleep_config_path()
+    if not os.environ.get("SANDMAN_SYSTEMD_SLEEP_CONFIG_PATH") and os.geteuid() != 0:
+        raise ConfigError("administrator authorization is required to change the hibernate delay")
+    try:
+        if value == 0:
+            path.unlink(missing_ok=True)
+            return
+        atomic_write_text(
+            path,
+            "[Sleep]\n"
+            f"HibernateDelaySec={value}s\n"
+            "HibernateOnACPower=yes\n",
+        )
+    except OSError as error:
+        raise ConfigError(f"Could not update {path}: {error}") from error
+
+
 def set_lid(value: str) -> dict[str, int | str]:
     config = current_config()
     config["lid"] = value
@@ -355,6 +488,7 @@ def parser() -> argparse.ArgumentParser:
     commands = result.add_subparsers(dest="command", required=True)
     commands.add_parser("init")
     commands.add_parser("get")
+    commands.add_parser("diagnose-hibernate")
     screensaver = commands.add_parser("set-screensaver")
     screensaver.add_argument("seconds", type=timeout)
     display = commands.add_parser("set-display")
@@ -363,6 +497,10 @@ def parser() -> argparse.ArgumentParser:
     lock.add_argument("seconds", type=timeout)
     sleep = commands.add_parser("set-sleep")
     sleep.add_argument("seconds", type=timeout)
+    hibernate = commands.add_parser("set-hibernate")
+    hibernate.add_argument("seconds", type=timeout)
+    configure_hibernate_parser = commands.add_parser("configure-hibernate")
+    configure_hibernate_parser.add_argument("seconds", type=timeout)
     lid = commands.add_parser("set-lid")
     lid.add_argument("action", choices=LID_ACTIONS)
     return result
@@ -375,6 +513,8 @@ def main() -> int:
             config = initialize()
         elif args.command == "get":
             config = current_config()
+        elif args.command == "diagnose-hibernate":
+            config = hibernate_diagnostics()
         elif args.command == "set-screensaver":
             config = set_screensaver(args.seconds)
         elif args.command == "set-display":
@@ -383,6 +523,11 @@ def main() -> int:
             config = set_lock(args.seconds)
         elif args.command == "set-sleep":
             config = set_sleep(args.seconds)
+        elif args.command == "set-hibernate":
+            config = set_hibernate(args.seconds)
+        elif args.command == "configure-hibernate":
+            configure_hibernate(args.seconds)
+            config = {"hibernate": args.seconds}
         else:
             config = set_lid(args.action)
     except ConfigError as error:

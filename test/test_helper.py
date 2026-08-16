@@ -17,6 +17,19 @@ class SandmanHelperTest(unittest.TestCase):
         self.shell = base / "shell.json"
         self.config = base / "sandman.json"
         self.hypr_bindings = base / "bindings.lua"
+        self.systemd_sleep_config = base / "90-sandman.conf"
+        self.power_state = base / "power-state"
+        self.power_resume = base / "power-resume"
+        self.proc_swaps = base / "proc-swaps"
+        self.proc_meminfo = base / "proc-meminfo"
+        self.lockdown = base / "lockdown"
+        self.efi = base / "efi"
+        self.power_state.write_text("freeze mem disk\n", encoding="utf-8")
+        self.power_resume.write_text("0:0\n", encoding="utf-8")
+        self.proc_swaps.write_text("Filename Type Size Used Priority\n", encoding="utf-8")
+        self.proc_meminfo.write_text("MemTotal: 8388608 kB\n", encoding="utf-8")
+        self.lockdown.write_text("[none] integrity confidentiality\n", encoding="utf-8")
+        self.efi.mkdir()
         self.hypr_bindings.write_text("-- user bindings\n", encoding="utf-8")
         self.shell.write_text(
             json.dumps({"version": 1, "idle": {"screensaver": 150, "lock": 300}, "unrelated": True}),
@@ -27,6 +40,13 @@ class SandmanHelperTest(unittest.TestCase):
             "OMARCHY_SHELL_CONFIG_PATH": str(self.shell),
             "SANDMAN_CONFIG_PATH": str(self.config),
             "SANDMAN_HYPR_BINDINGS_PATH": str(self.hypr_bindings),
+            "SANDMAN_SYSTEMD_SLEEP_CONFIG_PATH": str(self.systemd_sleep_config),
+            "SANDMAN_POWER_STATE_PATH": str(self.power_state),
+            "SANDMAN_POWER_RESUME_PATH": str(self.power_resume),
+            "SANDMAN_PROC_SWAPS_PATH": str(self.proc_swaps),
+            "SANDMAN_PROC_MEMINFO_PATH": str(self.proc_meminfo),
+            "SANDMAN_LOCKDOWN_PATH": str(self.lockdown),
+            "SANDMAN_EFI_PATH": str(self.efi),
             "SANDMAN_SKIP_HYPR_RELOAD": "1",
         }
 
@@ -55,7 +75,7 @@ class SandmanHelperTest(unittest.TestCase):
         return completed
 
     def test_init_inherits_omarchy_idle_settings_and_disables_sleep(self):
-        expected = {"screensaver": 150, "display": 0, "lock": 300, "sleep": 0, "lid": "system"}
+        expected = {"screensaver": 150, "display": 0, "lock": 300, "sleep": 0, "hibernate": 0, "lid": "system"}
         self.assertEqual(self.run_helper("init"), expected)
         self.assertEqual(json.loads(self.config.read_text()), expected)
 
@@ -65,7 +85,7 @@ class SandmanHelperTest(unittest.TestCase):
             encoding="utf-8",
         )
 
-        expected = {"screensaver": 150, "display": 0, "lock": 300, "sleep": 3600, "lid": "system"}
+        expected = {"screensaver": 150, "display": 0, "lock": 300, "sleep": 3600, "hibernate": 0, "lid": "system"}
         self.assertEqual(self.run_helper("init"), expected)
         self.assertEqual(json.loads(self.config.read_text()), expected)
 
@@ -73,7 +93,7 @@ class SandmanHelperTest(unittest.TestCase):
         self.run_helper("init")
         self.assertEqual(
             self.run_helper("set-screensaver", "600"),
-            {"screensaver": 600, "display": 0, "lock": 300, "sleep": 0, "lid": "system"},
+            {"screensaver": 600, "display": 0, "lock": 300, "sleep": 0, "hibernate": 0, "lid": "system"},
         )
         shell = json.loads(self.shell.read_text())
         self.assertEqual(shell["idle"], {"screensaver": 600, "lock": 300})
@@ -83,7 +103,7 @@ class SandmanHelperTest(unittest.TestCase):
         self.run_helper("init")
         self.assertEqual(
             self.run_helper("set-lock", "900"),
-            {"screensaver": 150, "display": 0, "lock": 900, "sleep": 0, "lid": "system"},
+            {"screensaver": 150, "display": 0, "lock": 900, "sleep": 0, "hibernate": 0, "lid": "system"},
         )
         shell = json.loads(self.shell.read_text())
         self.assertEqual(shell["idle"], {"screensaver": 150, "lock": 900})
@@ -93,7 +113,7 @@ class SandmanHelperTest(unittest.TestCase):
         self.run_helper("set-lock", "0")
         self.assertEqual(
             self.run_helper("set-screensaver", "0"),
-            {"screensaver": 0, "display": 0, "lock": 0, "sleep": 0, "lid": "system"},
+            {"screensaver": 0, "display": 0, "lock": 0, "sleep": 0, "hibernate": 0, "lid": "system"},
         )
         shell = json.loads(self.shell.read_text())
         self.assertEqual(
@@ -106,16 +126,60 @@ class SandmanHelperTest(unittest.TestCase):
         before = self.shell.read_text()
         self.assertEqual(
             self.run_helper("set-sleep", "3600"),
-            {"screensaver": 150, "display": 0, "lock": 300, "sleep": 3600, "lid": "system"},
+            {"screensaver": 150, "display": 0, "lock": 300, "sleep": 3600, "hibernate": 0, "lid": "system"},
         )
         self.assertEqual(self.shell.read_text(), before)
+
+    def test_hibernate_diagnostics_explain_missing_disk_backed_swap(self):
+        result = self.run_helper("diagnose-hibernate")
+
+        self.assertTrue(result["kernelHibernate"])
+        self.assertEqual(result["suitableSwapKiB"], 0)
+        self.assertTrue(result["efiAvailable"])
+        self.assertIn("No disk-backed swap is active", result["summary"])
+
+    def test_hibernate_diagnostics_report_kernel_resume_and_lockdown_issues(self):
+        self.power_state.write_text("freeze mem\n", encoding="utf-8")
+        self.efi.rmdir()
+        self.lockdown.write_text("none integrity [confidentiality]\n", encoding="utf-8")
+        self.proc_swaps.write_text(
+            "Filename Type Size Used Priority\n/dev/sda2 partition 16777216 0 -2\n",
+            encoding="utf-8",
+        )
+
+        result = self.run_helper("diagnose-hibernate")
+
+        self.assertFalse(result["kernelHibernate"])
+        self.assertIn("kernel does not advertise", result["summary"])
+        self.assertIn("No kernel resume device", result["summary"])
+        self.assertIn("lockdown confidentiality", result["summary"])
+
+    def test_hibernate_delay_changes_sandman_state(self):
+        self.run_helper("init")
+        before = self.shell.read_text()
+        self.assertEqual(
+            self.run_helper("set-hibernate", "7200"),
+            {"screensaver": 150, "display": 0, "lock": 300, "sleep": 0, "hibernate": 7200, "lid": "system"},
+        )
+        self.assertEqual(self.shell.read_text(), before)
+
+    def test_configure_hibernate_writes_and_removes_systemd_dropin(self):
+        self.run_helper("configure-hibernate", "7200")
+        self.assertEqual(
+            self.systemd_sleep_config.read_text(),
+            "[Sleep]\nHibernateDelaySec=7200s\nHibernateOnACPower=yes\n",
+        )
+
+        self.run_helper("configure-hibernate", "0")
+
+        self.assertFalse(self.systemd_sleep_config.exists())
 
     def test_display_only_changes_sandman_state(self):
         self.run_helper("init")
         before = self.shell.read_text()
         self.assertEqual(
             self.run_helper("set-display", "300"),
-            {"screensaver": 150, "display": 300, "lock": 300, "sleep": 0, "lid": "system"},
+            {"screensaver": 150, "display": 300, "lock": 300, "sleep": 0, "hibernate": 0, "lid": "system"},
         )
         self.assertEqual(self.shell.read_text(), before)
 
@@ -124,7 +188,7 @@ class SandmanHelperTest(unittest.TestCase):
         before = self.shell.read_text()
         self.assertEqual(
             self.run_helper("set-lid", "display"),
-            {"screensaver": 150, "display": 0, "lock": 300, "sleep": 0, "lid": "display"},
+            {"screensaver": 150, "display": 0, "lock": 300, "sleep": 0, "hibernate": 0, "lid": "display"},
         )
         self.assertEqual(self.shell.read_text(), before)
         bindings = self.hypr_bindings.read_text(encoding="utf-8")
@@ -216,14 +280,14 @@ class SandmanHelperTest(unittest.TestCase):
         self.shell.unlink()
         self.assertEqual(
             self.run_helper("init"),
-            {"screensaver": 150, "display": 0, "lock": 300, "sleep": 0, "lid": "system"},
+            {"screensaver": 150, "display": 0, "lock": 300, "sleep": 0, "hibernate": 0, "lid": "system"},
         )
 
     def test_damaged_sandman_config_is_rebuilt_from_shell(self):
         self.config.write_text("{not json", encoding="utf-8")
         self.assertEqual(
             self.run_helper("init"),
-            {"screensaver": 150, "display": 0, "lock": 300, "sleep": 0, "lid": "system"},
+            {"screensaver": 150, "display": 0, "lock": 300, "sleep": 0, "hibernate": 0, "lid": "system"},
         )
 
 

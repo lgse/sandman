@@ -4,6 +4,7 @@ var screensaverPresets = [0, 60, 120, 300, 600, 900, 1800]
 var displayPresets = [0, 60, 120, 300, 600, 900, 1800]
 var lockPresets = [0, 300, 600, 900, 1800, 3600]
 var sleepPresets = [0, 900, 1800, 3600, 7200]
+var hibernatePresets = [0, 1800, 3600, 7200, 14400, 28800]
 var lidActions = ["system", "nothing", "display", "sleep", "hibernate"]
 
 var maxTimeoutSeconds = 7 * 24 * 60 * 60
@@ -61,6 +62,7 @@ function parseConfig(raw) {
     display: normalizedSeconds(parsed.display, 0, true),
     lock: normalizedSeconds(parsed.lock, 300, true),
     sleep: normalizedSeconds(parsed.sleep, 0, true),
+    hibernate: normalizedSeconds(parsed.hibernate, 0, true),
     lid: normalizedLidAction(parsed.lid)
   }
 }
@@ -103,9 +105,11 @@ function customSeconds(hours, minutes) {
   return (safeHours * 60 + safeMinutes) * 60
 }
 
-function statusSummary(screensaver, display, lock, sleep) {
-  return "Screen " + formatDuration(screensaver)
+function statusSummary(screensaver, display, lock, sleep, hibernate) {
+  var summary = "Screen " + formatDuration(screensaver)
     + " · Displays " + formatDuration(display)
     + " · Lock " + formatDuration(lock)
     + " · Sleep " + formatDuration(sleep)
+  if (Number(hibernate) > 0) summary += " · Hibernate +" + formatDuration(hibernate)
+  return summary
 }

@@ -10,10 +10,12 @@ Item {
   id: root
 
   property string action: "system"
+  property bool hibernateAfterSleep: false
   property bool present: false
   property bool closed: false
   property bool stateKnown: false
   property string hibernateCapability: "unknown"
+  property string suspendThenHibernateCapability: "unknown"
   property string internalDisplay: ""
   property bool displayOff: false
   property bool displayWakePending: false
@@ -29,6 +31,7 @@ Item {
   readonly property bool inhibitSleepForLid: action === "nothing" || action === "display"
   readonly property string inhibitorWhat: inhibitSleepForLid ? "handle-lid-switch:sleep" : "handle-lid-switch"
   readonly property bool hibernateAvailable: hibernateCapability === "yes"
+  readonly property bool suspendThenHibernateAvailable: suspendThenHibernateCapability === "yes"
 
   signal errorOccurred(string message)
 
@@ -98,7 +101,13 @@ Item {
       return
     }
     root.powerAction = requestedAction
-    powerProcess.command = ["systemctl", requestedAction]
+    var effectiveAction = requestedAction === "suspend" && root.hibernateAfterSleep
+      ? "suspend-then-hibernate" : requestedAction
+    if (effectiveAction === "suspend-then-hibernate" && !root.suspendThenHibernateAvailable) {
+      root.errorOccurred("Suspend then hibernate is not available on this computer")
+      return
+    }
+    powerProcess.command = ["systemctl", effectiveAction]
     powerProcess.running = true
   }
 
@@ -152,6 +161,19 @@ Item {
       onStreamFinished: {
         var match = String(text).match(/"([^"]+)"/)
         root.hibernateCapability = match ? match[1] : "unknown"
+      }
+    }
+    Component.onCompleted: running = true
+  }
+
+  Process {
+    id: suspendThenHibernateCapabilityProcess
+    command: ["busctl", "call", "org.freedesktop.login1", "/org/freedesktop/login1", "org.freedesktop.login1.Manager", "CanSuspendThenHibernate"]
+    stdout: StdioCollector {
+      waitForEnd: true
+      onStreamFinished: {
+        var match = String(text).match(/"([^"]+)"/)
+        root.suspendThenHibernateCapability = match ? match[1] : "unknown"
       }
     }
     Component.onCompleted: running = true
@@ -248,7 +270,9 @@ Item {
       if (exitCode !== 0)
         root.errorOccurred(completedAction === "hibernate"
           ? "Could not hibernate the computer"
-          : "Could not suspend the computer")
+          : root.hibernateAfterSleep
+            ? "Could not suspend then hibernate the computer"
+            : "Could not suspend the computer")
     }
   }
 }

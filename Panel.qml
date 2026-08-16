@@ -25,6 +25,7 @@ Panel {
   readonly property bool lidPresent: sandmanService ? sandmanService.lidPresent : false
   readonly property bool hibernateAvailable: sandmanService ? sandmanService.hibernateAvailable : false
   readonly property bool suspendThenHibernateAvailable: sandmanService ? sandmanService.suspendThenHibernateAvailable : false
+  readonly property string hibernateDiagnostic: sandmanService ? sandmanService.hibernateDiagnostic : ""
   readonly property bool saving: sandmanService ? sandmanService.saving : false
   readonly property bool screensaverUsesPreset: Model.isPreset(screensaverSeconds, Model.screensaverPresets)
   readonly property bool displayUsesPreset: Model.isPreset(displaySeconds, Model.displayPresets)
@@ -875,7 +876,10 @@ Panel {
           Text {
             visible: !root.suspendThenHibernateAvailable
             width: parent.width
-            text: "Suspend then hibernate is not available on this computer."
+            text: "Suspend then hibernate is not available on this computer. "
+              + (root.hibernateDiagnostic !== ""
+                ? root.hibernateDiagnostic
+                : "Check swap, kernel resume configuration, and firmware support.")
             color: Color.urgent
             font.family: root.contentFontFamily
             font.pixelSize: Style.font.caption

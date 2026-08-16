@@ -61,6 +61,11 @@ def systemd_sleep_config_path() -> Path:
     return Path(override).expanduser() if override else SYSTEMD_SLEEP_CONFIG
 
 
+def diagnostic_path(environment_name: str, default: str) -> Path:
+    override = os.environ.get(environment_name)
+    return Path(override).expanduser() if override else Path(default)
+
+
 def read_json(
     path: Path, fallback: dict[str, Any], *, strict: bool = False
 ) -> dict[str, Any]:
@@ -340,6 +345,94 @@ def set_hibernate(value: int) -> dict[str, int | str]:
     return config
 
 
+def hibernate_diagnostics() -> dict[str, Any]:
+    """Report safe, read-only checks for common hibernation prerequisites."""
+    issues: list[str] = []
+
+    power_state_path = diagnostic_path("SANDMAN_POWER_STATE_PATH", "/sys/power/state")
+    resume_path = diagnostic_path("SANDMAN_POWER_RESUME_PATH", "/sys/power/resume")
+    swaps_path = diagnostic_path("SANDMAN_PROC_SWAPS_PATH", "/proc/swaps")
+    meminfo_path = diagnostic_path("SANDMAN_PROC_MEMINFO_PATH", "/proc/meminfo")
+    lockdown_path = diagnostic_path(
+        "SANDMAN_LOCKDOWN_PATH", "/sys/kernel/security/lockdown"
+    )
+    efi_path = diagnostic_path("SANDMAN_EFI_PATH", "/sys/firmware/efi")
+
+    try:
+        kernel_hibernate = "disk" in power_state_path.read_text(encoding="utf-8").split()
+    except (OSError, UnicodeError):
+        kernel_hibernate = False
+    if not kernel_hibernate:
+        issues.append("The kernel does not advertise hibernation support.")
+
+    memory_kib = 0
+    try:
+        for line in meminfo_path.read_text(encoding="utf-8").splitlines():
+            if line.startswith("MemTotal:"):
+                memory_kib = int(line.split()[1])
+                break
+    except (OSError, UnicodeError, ValueError, IndexError):
+        pass
+
+    suitable_swap_kib = 0
+    try:
+        lines = swaps_path.read_text(encoding="utf-8").splitlines()[1:]
+        for line in lines:
+            fields = line.split()
+            if len(fields) >= 3 and not fields[0].startswith("/dev/zram"):
+                suitable_swap_kib += int(fields[2])
+    except (OSError, UnicodeError, ValueError):
+        pass
+    if suitable_swap_kib == 0:
+        issues.append(
+            "No disk-backed swap is active. Configure a swap file or partition "
+            "large enough for hibernation; zram alone cannot store the image."
+        )
+    elif memory_kib and suitable_swap_kib < memory_kib:
+        issues.append(
+            "Disk-backed swap is smaller than RAM. Hibernation may need a larger "
+            "swap area when memory use is high."
+        )
+
+    try:
+        resume_value = resume_path.read_text(encoding="utf-8").strip()
+    except (OSError, UnicodeError):
+        resume_value = ""
+    resume_configured = bool(resume_value and resume_value != "0:0")
+    efi_available = efi_path.is_dir()
+    if not resume_configured and not efi_available:
+        issues.append(
+            "No kernel resume device is configured and EFI resume discovery is unavailable."
+        )
+
+    lockdown_mode = "unknown"
+    try:
+        lockdown = lockdown_path.read_text(encoding="utf-8")
+        selected = re.search(r"\[([^]]+)]", lockdown)
+        lockdown_mode = selected.group(1) if selected else lockdown.strip() or "unknown"
+    except (OSError, UnicodeError):
+        pass
+    if lockdown_mode == "confidentiality":
+        issues.append("Kernel lockdown confidentiality mode can prevent hibernation.")
+
+    if not issues:
+        issues.append(
+            "The basic checks passed, but logind still reports hibernation as unavailable. "
+            "Check system logs and firmware support."
+        )
+
+    return {
+        "kernelHibernate": kernel_hibernate,
+        "memoryKiB": memory_kib,
+        "suitableSwapKiB": suitable_swap_kib,
+        "resumeConfigured": resume_configured,
+        "efiAvailable": efi_available,
+        "lockdownMode": lockdown_mode,
+        "issues": issues,
+        "summary": " ".join(issues),
+    }
+
+
 def configure_hibernate(value: int) -> None:
     """Set systemd's suspend-then-hibernate delay.
 
@@ -395,6 +488,7 @@ def parser() -> argparse.ArgumentParser:
     commands = result.add_subparsers(dest="command", required=True)
     commands.add_parser("init")
     commands.add_parser("get")
+    commands.add_parser("diagnose-hibernate")
     screensaver = commands.add_parser("set-screensaver")
     screensaver.add_argument("seconds", type=timeout)
     display = commands.add_parser("set-display")
@@ -419,6 +513,8 @@ def main() -> int:
             config = initialize()
         elif args.command == "get":
             config = current_config()
+        elif args.command == "diagnose-hibernate":
+            config = hibernate_diagnostics()
         elif args.command == "set-screensaver":
             config = set_screensaver(args.seconds)
         elif args.command == "set-display":

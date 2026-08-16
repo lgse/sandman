@@ -12,6 +12,7 @@ Item {
   property var configState: ({ screensaver: 150, display: 0, lock: 300, sleep: 0, hibernate: 0, lid: "system" })
   property bool saving: false
   property string lastError: ""
+  property string hibernateDiagnostic: ""
   property bool suspendPending: false
   property int pendingHibernateSeconds: 0
   property bool displaysOff: false
@@ -245,6 +246,23 @@ Item {
   }
 
   Process {
+    id: hibernateDiagnosticProcess
+    command: ["python3", root.helperPath, "diagnose-hibernate"]
+    stdout: StdioCollector {
+      waitForEnd: true
+      onStreamFinished: {
+        try {
+          var result = JSON.parse(String(text))
+          root.hibernateDiagnostic = String(result.summary || "")
+        } catch (error) {
+          root.hibernateDiagnostic = ""
+        }
+      }
+    }
+    Component.onCompleted: running = true
+  }
+
+  Process {
     id: initializeProcess
     command: ["python3", root.helperPath, "init"]
     stdout: StdioCollector {
@@ -389,6 +407,7 @@ Item {
         internalDisplay: root.internalDisplay,
         hibernateAvailable: root.hibernateAvailable,
         suspendThenHibernateAvailable: root.suspendThenHibernateAvailable,
+        hibernateDiagnostic: root.hibernateDiagnostic,
         idle: idleMonitor.isIdle,
         idleCycleRunning: root.idleCycleRunning,
         displayDelay: root.displayDelaySeconds,

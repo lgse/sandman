@@ -115,11 +115,16 @@ Item {
     root.idleCycleRunning = true
     resetScreensaverWindows()
 
-    // Omarchy starts the screensaver at this same idle boundary. It briefly
-    // reports compositor activity while opening, so allow its window event
-    // to arrive before deciding that the user really returned.
-    if (root.screensaverSeconds > 0 && root.firstIdleSeconds === root.screensaverSeconds)
-      screensaverGrace.restart()
+    // Omarchy starts the screensaver at the screensaver boundary. It briefly
+    // reports compositor activity while opening, so allow its window event to
+    // arrive before deciding that the user really returned. Arm the grace now if
+    // the screensaver is the first stage, otherwise schedule it for the later
+    // screensaver boundary (e.g. Display=2m, Screensaver=5m) so launching it
+    // then does not cancel the cycle and turn the displays back on.
+    if (root.screensaverSeconds > 0) {
+      if (root.firstIdleSeconds === root.screensaverSeconds) screensaverGrace.restart()
+      else screensaverBoundaryTimer.restart()
+    }
 
     if (root.displayEnabled) {
       if (root.displayDelaySeconds === 0) turnDisplaysOff()
@@ -136,6 +141,7 @@ Item {
     displayTimer.stop()
     sleepTimer.stop()
     screensaverGrace.stop()
+    screensaverBoundaryTimer.stop()
     root.idleCycleRunning = false
     resetScreensaverWindows()
     if (root.displaysOff) turnDisplaysOn()
@@ -238,6 +244,16 @@ Item {
                      && root.screensaverWindowCount === 0) root.cancelIdleCycle()
   }
 
+  // When the screensaver boundary comes after the first idle stage (e.g. displays
+  // off before the screensaver), arm the grace as that boundary arrives so the
+  // screensaver launch's brief activity does not cancel the cycle.
+  Timer {
+    id: screensaverBoundaryTimer
+    interval: Math.max(0, root.screensaverSeconds - root.firstIdleSeconds) * 1000
+    repeat: false
+    onTriggered: if (root.idleCycleRunning) screensaverGrace.restart()
+  }
+
   Connections {
     target: Hyprland
     function onRawEvent(event) { root.handleHyprlandEvent(event) }
@@ -246,9 +262,12 @@ Item {
   // Hyprland's Lua config parses `hyprctl dispatch` args as Lua, so the classic
   // `dpms off` form is a syntax error there; use the `hl.dsp` shorthand and fall
   // back to the classic form for older Hyprland, mirroring omarchy-launch-screensaver.
+  // The action MUST be passed as a table (`{ action = "off" }`); a bare string is
+  // treated as the default *toggle*, so an explicit "on" after input already woke
+  // the displays would toggle them back off.
   Process {
     id: displayOffProcess
-    command: ["bash", "-lc", "hyprctl dispatch 'hl.dsp.dpms(\"off\")' || hyprctl dispatch dpms off"]
+    command: ["bash", "-lc", "hyprctl dispatch 'hl.dsp.dpms({ action = \"off\" })' || hyprctl dispatch dpms off"]
     onExited: function(exitCode) {
       if (exitCode !== 0) {
         root.displaysOff = false
@@ -259,7 +278,7 @@ Item {
 
   Process {
     id: displayOnProcess
-    command: ["bash", "-lc", "hyprctl dispatch 'hl.dsp.dpms(\"on\")' || hyprctl dispatch dpms on"]
+    command: ["bash", "-lc", "hyprctl dispatch 'hl.dsp.dpms({ action = \"on\" })' || hyprctl dispatch dpms on"]
   }
 
   Process {

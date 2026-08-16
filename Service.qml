@@ -15,6 +15,7 @@ Item {
   property bool suspendPending: false
   property bool displaysOff: false
   property bool idleCycleRunning: false
+  property bool idleMonitorRearming: false
   property var screensaverWindows: ({})
   property int screensaverWindowCount: 0
 
@@ -82,6 +83,13 @@ Item {
 
   function refresh() {
     configFile.reload()
+  }
+
+  function rearmIdleMonitor() {
+    cancelIdleCycle()
+    if (!root.cycleEnabled) return
+    root.idleMonitorRearming = true
+    Qt.callLater(function() { root.idleMonitorRearming = false })
   }
 
   function resetScreensaverWindows() {
@@ -183,9 +191,12 @@ Item {
     suspendProcess.running = true
   }
 
-  onScreensaverSecondsChanged: cancelIdleCycle()
-  onDisplaySecondsChanged: cancelIdleCycle()
-  onSleepSecondsChanged: cancelIdleCycle()
+  // Quickshell's IdleMonitor does not re-register its idle notification when
+  // only `timeout` changes. Toggle it off and back on so changed settings take
+  // effect without requiring an omarchy-shell restart.
+  onScreensaverSecondsChanged: rearmIdleMonitor()
+  onDisplaySecondsChanged: rearmIdleMonitor()
+  onSleepSecondsChanged: rearmIdleMonitor()
 
   Process {
     id: initializeProcess
@@ -225,7 +236,7 @@ Item {
 
   IdleMonitor {
     id: idleMonitor
-    enabled: root.cycleEnabled
+    enabled: root.cycleEnabled && !root.idleMonitorRearming
     timeout: root.firstIdleSeconds
     respectInhibitors: true
     onIsIdleChanged: root.handleIdleChanged()

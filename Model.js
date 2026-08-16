@@ -9,22 +9,29 @@ var maxTimeoutSeconds = 7 * 24 * 60 * 60
 // Validate a caller-supplied timeout, including one arriving over IPC.
 // Returns whole seconds in [0, maxTimeoutSeconds], or -1 when the value is
 // unusable. Callers must treat -1 as "reject" and never as 0: coercing a bad
-// value to 0 would read as "Off" and stand auto-lock down. The upper bound
-// keeps sleepDelaySeconds * 1000 inside a 32-bit int.
+// value to 0 would read as "Off" and stand auto-lock down.
+//
+// Out-of-range values are rejected rather than clamped, matching the CLI. A
+// clamp would turn an absurd setLock into a seven-day timeout, which is the
+// same silent weakening this is meant to prevent.
 function requestedSeconds(value) {
   var number = Number(value)
   if (!isFinite(number)) return -1
   number = Math.round(number)
-  if (number < 0) return -1
-  return Math.min(number, maxTimeoutSeconds)
+  if (number < 0 || number > maxTimeoutSeconds) return -1
+  return number
 }
 
+// Normalize a value already on disk. Unlike requestedSeconds there is no caller
+// to report back to, so an oversized value is clamped rather than rejected -
+// the bound is what keeps sleepDelaySeconds * 1000 inside a 32-bit int.
 function normalizedSeconds(value, fallback, allowOff) {
   var number = Number(value)
   if (!isFinite(number)) return fallback
   number = Math.round(number)
   if (allowOff && number === 0) return 0
-  return number > 0 ? number : fallback
+  if (number <= 0) return fallback
+  return Math.min(number, maxTimeoutSeconds)
 }
 
 function parseConfig(raw) {

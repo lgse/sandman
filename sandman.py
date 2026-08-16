@@ -47,7 +47,9 @@ def read_json(
         text = path.read_text(encoding="utf-8")
     except FileNotFoundError:
         return fallback.copy()
-    except OSError as error:
+    except (OSError, UnicodeError) as error:
+        # UnicodeDecodeError subclasses ValueError, not OSError, so a file
+        # holding invalid UTF-8 would otherwise escape as a traceback.
         if strict:
             raise ConfigError(f"Could not read {path}: {error}") from error
         return fallback.copy()
@@ -80,7 +82,12 @@ def seconds(value: Any, fallback: int, *, allow_off: bool = False) -> int:
         return fallback
     if allow_off and result == 0:
         return 0
-    return result if result > 0 else fallback
+    if result <= 0:
+        return fallback
+    # Bound persisted values too, not just setter input. A sandman.json written
+    # by an older version - or edited by hand - can hold a value large enough to
+    # overflow sleepDelaySeconds * 1000 in the QML timer.
+    return min(result, MAX_TIMEOUT)
 
 
 def atomic_write(path: Path, value: dict[str, Any]) -> None:

@@ -107,6 +107,31 @@ class SandmanHelperTest(unittest.TestCase):
         self.assertEqual(self.shell.read_text(), before)
 
 
+    def test_invalid_utf8_shell_config_reports_cleanly_and_is_left_intact(self):
+        self.run_helper("init")
+        damaged = b'{"version": 1, "idle": {"lock": 300}, "x": "\xff\xfe"}'
+        self.shell.write_bytes(damaged)
+
+        completed = self.run_helper_expecting_failure("set-lock", "900")
+
+        # A controlled message, not a UnicodeDecodeError traceback.
+        self.assertIn("sandman:", completed.stderr)
+        self.assertNotIn("Traceback", completed.stderr)
+        self.assertEqual(self.shell.read_bytes(), damaged)
+
+    def test_oversized_persisted_value_is_bounded(self):
+        self.config.write_text(
+            json.dumps({"screensaver": 150, "lock": 300, "sleep": 2000000000}),
+            encoding="utf-8",
+        )
+
+        result = self.run_helper("init")
+
+        # Must stay under the 32-bit limit of sleepDelaySeconds * 1000.
+        self.assertEqual(result["sleep"], 7 * 24 * 60 * 60)
+        self.assertLess(result["sleep"] * 1000, 2**31 - 1)
+        self.assertEqual(json.loads(self.config.read_text())["sleep"], 7 * 24 * 60 * 60)
+
     def test_malformed_shell_config_is_left_intact(self):
         self.run_helper("init")
         damaged = '{"version": 1, "idle": {"lock": 300}, "bar": {"position": "top"},}'

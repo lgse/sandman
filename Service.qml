@@ -9,10 +9,11 @@ Item {
   id: root
 
   property var shell: null
-  property var configState: ({ screensaver: 150, display: 0, lock: 300, sleep: 0, lid: "system" })
+  property var configState: ({ screensaver: 150, display: 0, lock: 300, sleep: 0, hibernate: 0, lid: "system" })
   property bool saving: false
   property string lastError: ""
   property bool suspendPending: false
+  property int pendingHibernateSeconds: 0
   property bool displaysOff: false
   property bool idleCycleRunning: false
   property bool idleMonitorRearming: false
@@ -26,11 +27,13 @@ Item {
   readonly property int displaySeconds: Model.normalizedSeconds(configState.display, 0, true)
   readonly property int lockSeconds: Model.normalizedSeconds(configState.lock, 300, true)
   readonly property int sleepSeconds: Model.normalizedSeconds(configState.sleep, 0, true)
+  readonly property int hibernateSeconds: Model.normalizedSeconds(configState.hibernate, 0, true)
   readonly property string lidAction: Model.normalizedLidAction(configState.lid)
   readonly property bool lidPresent: lidService.present
   readonly property bool lidClosed: lidService.closed
   readonly property string internalDisplay: lidService.internalDisplay
   readonly property bool hibernateAvailable: lidService.hibernateAvailable
+  readonly property bool suspendThenHibernateAvailable: lidService.suspendThenHibernateAvailable
   readonly property bool displayEnabled: displaySeconds > 0
   readonly property bool sleepEnabled: sleepSeconds > 0
   // The screensaver, display-off, and sleep stages are all self-observed here so
@@ -53,7 +56,7 @@ Item {
   }
 
   function runHelper(arguments) {
-    if (settingsProcess.running) return false
+    if (settingsProcess.running || hibernateConfigProcess.running) return false
     root.saving = true
     root.lastError = ""
     settingsProcess.command = ["python3", root.helperPath].concat(arguments)
@@ -84,6 +87,26 @@ Item {
 
   function setSleep(seconds) {
     return runSetter("set-sleep", seconds)
+  }
+
+  function setHibernate(seconds) {
+    var value = Model.requestedSeconds(seconds)
+    if (value < 0) {
+      root.lastError = "Ignored an invalid timeout"
+      return false
+    }
+    if (value > 0 && !root.suspendThenHibernateAvailable) {
+      root.lastError = "Suspend then hibernate is not available on this computer"
+      return false
+    }
+    if (hibernateConfigProcess.running || settingsProcess.running) return false
+    root.saving = true
+    root.lastError = ""
+    root.pendingHibernateSeconds = value
+    hibernateConfigProcess.command = ["pkexec", "python3", root.helperPath,
+      "configure-hibernate", String(value)]
+    hibernateConfigProcess.running = true
+    return true
   }
 
   function setLid(action) {
@@ -202,6 +225,8 @@ Item {
     if (!root.sleepEnabled || suspendProcess.running) return
     root.suspendPending = true
     root.lastError = ""
+    suspendProcess.command = ["systemctl", root.hibernateSeconds > 0
+      ? "suspend-then-hibernate" : "suspend"]
     suspendProcess.running = true
   }
 
@@ -215,6 +240,7 @@ Item {
   LidService {
     id: lidService
     action: root.lidAction
+    hibernateAfterSleep: root.hibernateSeconds > 0
     onErrorOccurred: function(message) { root.lastError = message }
   }
 
@@ -229,6 +255,18 @@ Item {
     onExited: function(exitCode) {
       if (exitCode !== 0) root.lastError = "Could not initialize Sandman settings"
       configFile.reload()
+    }
+  }
+
+  Process {
+    id: hibernateConfigProcess
+    onExited: function(exitCode) {
+      if (exitCode === 0) {
+        root.runHelper(["set-hibernate", String(root.pendingHibernateSeconds)])
+      } else {
+        root.saving = false
+        root.lastError = "Could not change the system hibernate delay"
+      }
     }
   }
 
@@ -329,7 +367,9 @@ Item {
       root.suspendPending = false
       root.cancelIdleCycle()
       if (exitCode !== 0)
-        root.lastError = "Sleep was blocked by the system or an application"
+        root.lastError = root.hibernateSeconds > 0
+          ? "Suspend then hibernate was blocked or unavailable"
+          : "Sleep was blocked by the system or an application"
     }
   }
 
@@ -342,11 +382,13 @@ Item {
         display: root.displaySeconds,
         lock: root.lockSeconds,
         sleep: root.sleepSeconds,
+        hibernate: root.hibernateSeconds,
         lid: root.lidAction,
         lidPresent: root.lidPresent,
         lidClosed: root.lidClosed,
         internalDisplay: root.internalDisplay,
         hibernateAvailable: root.hibernateAvailable,
+        suspendThenHibernateAvailable: root.suspendThenHibernateAvailable,
         idle: idleMonitor.isIdle,
         idleCycleRunning: root.idleCycleRunning,
         displayDelay: root.displayDelaySeconds,
@@ -363,6 +405,7 @@ Item {
     function setDisplay(seconds: int): bool { return root.setDisplay(seconds) }
     function setLock(seconds: int): bool { return root.setLock(seconds) }
     function setSleep(seconds: int): bool { return root.setSleep(seconds) }
+    function setHibernate(seconds: int): bool { return root.setHibernate(seconds) }
     function setLid(action: string): bool { return root.setLid(action) }
     function refresh(): void { root.refresh() }
   }

@@ -20,14 +20,17 @@ Panel {
   readonly property int displaySeconds: sandmanService ? sandmanService.displaySeconds : 0
   readonly property int lockSeconds: sandmanService ? sandmanService.lockSeconds : 300
   readonly property int sleepSeconds: sandmanService ? sandmanService.sleepSeconds : 0
+  readonly property int hibernateSeconds: sandmanService ? sandmanService.hibernateSeconds : 0
   readonly property string lidAction: sandmanService ? sandmanService.lidAction : "system"
   readonly property bool lidPresent: sandmanService ? sandmanService.lidPresent : false
   readonly property bool hibernateAvailable: sandmanService ? sandmanService.hibernateAvailable : false
+  readonly property bool suspendThenHibernateAvailable: sandmanService ? sandmanService.suspendThenHibernateAvailable : false
   readonly property bool saving: sandmanService ? sandmanService.saving : false
   readonly property bool screensaverUsesPreset: Model.isPreset(screensaverSeconds, Model.screensaverPresets)
   readonly property bool displayUsesPreset: Model.isPreset(displaySeconds, Model.displayPresets)
   readonly property bool lockUsesPreset: Model.isPreset(lockSeconds, Model.lockPresets)
   readonly property bool sleepUsesPreset: Model.isPreset(sleepSeconds, Model.sleepPresets)
+  readonly property bool hibernateUsesPreset: Model.isPreset(hibernateSeconds, Model.hibernatePresets)
   property bool customEditorOpen: false
   property int customHours: 0
   property int customMinutes: 1
@@ -40,10 +43,14 @@ Panel {
   property bool customSleepEditorOpen: false
   property int customSleepHours: 0
   property int customSleepMinutes: 15
+  property bool customHibernateEditorOpen: false
+  property int customHibernateHours: 1
+  property int customHibernateMinutes: 0
   readonly property int customTimeoutSeconds: Model.customSeconds(customHours, customMinutes)
   readonly property int customDisplayTimeoutSeconds: Model.customSeconds(customDisplayHours, customDisplayMinutes)
   readonly property int customLockTimeoutSeconds: Model.customSeconds(customLockHours, customLockMinutes)
   readonly property int customSleepTimeoutSeconds: Model.customSeconds(customSleepHours, customSleepMinutes)
+  readonly property int customHibernateTimeoutSeconds: Model.customSeconds(customHibernateHours, customHibernateMinutes)
 
   function open() { root.controller.show() }
   function close() { root.controller.hide() }
@@ -161,16 +168,43 @@ Panel {
     if (root.customSleepTimeoutSeconds > 0) root.setSleep(root.customSleepTimeoutSeconds)
   }
 
+  function setHibernate(value) {
+    if (root.sandmanService) root.sandmanService.setHibernate(value)
+  }
+
+  function selectHibernatePreset(value) {
+    root.customHibernateEditorOpen = false
+    root.setHibernate(value)
+  }
+
+  function loadCustomHibernateTimeout() {
+    var parts = Model.customParts(root.hibernateSeconds > 0 ? root.hibernateSeconds : 3600)
+    root.customHibernateHours = parts.hours
+    root.customHibernateMinutes = parts.minutes
+  }
+
+  function openCustomHibernateEditor() {
+    root.loadCustomHibernateTimeout()
+    root.customHibernateEditorOpen = true
+  }
+
+  function applyCustomHibernateTimeout() {
+    if (root.customHibernateTimeoutSeconds > 0)
+      root.setHibernate(root.customHibernateTimeoutSeconds)
+  }
+
   onOpenedChanged: {
     if (!opened) return
     root.customEditorOpen = !root.screensaverUsesPreset
     root.customDisplayEditorOpen = !root.displayUsesPreset
     root.customLockEditorOpen = !root.lockUsesPreset
     root.customSleepEditorOpen = !root.sleepUsesPreset
+    root.customHibernateEditorOpen = !root.hibernateUsesPreset
     if (root.customEditorOpen) root.loadCustomTimeout()
     if (root.customDisplayEditorOpen) root.loadCustomDisplayTimeout()
     if (root.customLockEditorOpen) root.loadCustomLockTimeout()
     if (root.customSleepEditorOpen) root.loadCustomSleepTimeout()
+    if (root.customHibernateEditorOpen) root.loadCustomHibernateTimeout()
   }
 
   KeyboardPanel {
@@ -241,7 +275,7 @@ Panel {
             }
 
             Text {
-              text: Model.statusSummary(root.screensaverSeconds, root.displaySeconds, root.lockSeconds, root.sleepSeconds)
+              text: Model.statusSummary(root.screensaverSeconds, root.displaySeconds, root.lockSeconds, root.sleepSeconds, root.hibernateSeconds)
               color: Util.alpha(root.contentForeground, 0.64)
               font.family: root.contentFontFamily
               font.pixelSize: Style.font.caption
@@ -731,6 +765,138 @@ Panel {
             width: parent.width
             text: "Sleep is set before the screen saver can appear."
             color: Color.urgent
+            font.family: root.contentFontFamily
+            font.pixelSize: Style.font.caption
+            wrapMode: Text.WordWrap
+          }
+        }
+
+        PanelSeparator { width: parent.width }
+
+        Column {
+          width: parent.width
+          spacing: Style.space(7)
+
+          PanelSectionHeader {
+            width: parent.width
+            text: "HIBERNATE AFTER SLEEP"
+            foreground: root.contentForeground
+            fontFamily: root.contentFontFamily
+          }
+
+          Text {
+            width: parent.width
+            text: "Wake from suspend and hibernate after this delay"
+            color: Util.alpha(root.contentForeground, 0.64)
+            font.family: root.contentFontFamily
+            font.pixelSize: Style.font.caption
+          }
+
+          Grid {
+            id: hibernateGrid
+            width: parent.width
+            columns: 3
+            columnSpacing: Style.space(6)
+            rowSpacing: Style.space(6)
+
+            Repeater {
+              model: Model.hibernatePresets
+
+              Button {
+                required property var modelData
+                width: (hibernateGrid.width - hibernateGrid.columnSpacing * 2) / 3
+                text: Model.formatDuration(modelData)
+                selected: !root.customHibernateEditorOpen
+                  && root.hibernateSeconds === Number(modelData)
+                enabled: !root.saving && (Number(modelData) === 0
+                  || root.suspendThenHibernateAvailable)
+                focusable: true
+                bordered: true
+                foreground: root.contentForeground
+                fontFamily: root.contentFontFamily
+                onClicked: root.selectHibernatePreset(Number(modelData))
+              }
+            }
+
+            Button {
+              width: (hibernateGrid.width - hibernateGrid.columnSpacing * 2) / 3
+              text: "Custom"
+              selected: root.customHibernateEditorOpen || !root.hibernateUsesPreset
+              enabled: !root.saving && root.suspendThenHibernateAvailable
+              focusable: true
+              bordered: true
+              foreground: root.contentForeground
+              fontFamily: root.contentFontFamily
+              onClicked: root.openCustomHibernateEditor()
+            }
+          }
+
+          Row {
+            visible: root.customHibernateEditorOpen
+            width: parent.width
+            spacing: Style.space(8)
+
+            NumberField {
+              label: "Hours"
+              value: root.customHibernateHours
+              from: 0
+              to: 24
+              fieldWidth: Style.space(104)
+              foreground: root.contentForeground
+              fontFamily: root.contentFontFamily
+              onModified: function(value) { root.customHibernateHours = value }
+            }
+
+            NumberField {
+              label: "Minutes"
+              value: root.customHibernateMinutes
+              from: 0
+              to: 59
+              fieldWidth: Style.space(104)
+              foreground: root.contentForeground
+              fontFamily: root.contentFontFamily
+              onModified: function(value) { root.customHibernateMinutes = value }
+            }
+
+            Button {
+              anchors.bottom: parent.bottom
+              width: parent.width - x
+              text: "Apply"
+              enabled: !root.saving && root.suspendThenHibernateAvailable
+                && root.customHibernateTimeoutSeconds > 0
+              focusable: true
+              bordered: true
+              foreground: root.contentForeground
+              fontFamily: root.contentFontFamily
+              onClicked: root.applyCustomHibernateTimeout()
+            }
+          }
+
+          Text {
+            visible: !root.suspendThenHibernateAvailable
+            width: parent.width
+            text: "Suspend then hibernate is not available on this computer."
+            color: Color.urgent
+            font.family: root.contentFontFamily
+            font.pixelSize: Style.font.caption
+            wrapMode: Text.WordWrap
+          }
+
+          Text {
+            visible: root.hibernateSeconds > 0 && root.sleepSeconds === 0
+            width: parent.width
+            text: "Enable Sleep for automatic hibernation after inactivity."
+            color: Color.urgent
+            font.family: root.contentFontFamily
+            font.pixelSize: Style.font.caption
+            wrapMode: Text.WordWrap
+          }
+
+          Text {
+            visible: root.hibernateSeconds > 0
+            width: parent.width
+            text: "Changing this delay requires administrator authorization."
+            color: Util.alpha(root.contentForeground, 0.64)
             font.family: root.contentFontFamily
             font.pixelSize: Style.font.caption
             wrapMode: Text.WordWrap

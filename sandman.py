@@ -18,6 +18,7 @@ DEFAULT_SCREENSAVER = 150
 DEFAULT_DISPLAY = 0
 DEFAULT_LOCK = 300
 DEFAULT_SLEEP = 0
+DEFAULT_HIBERNATE = 0
 DEFAULT_LID_ACTION = "system"
 LID_ACTIONS = ("system", "nothing", "display", "sleep", "hibernate")
 OFF_TIMEOUT = 7 * 24 * 60 * 60
@@ -33,6 +34,7 @@ o.bind("switch:on:Lid Switch", nil, "omarchy-hyprland-monitor-clamshell", {{ loc
 {HYPR_OVERRIDE_END}
 """
 MANAGED_LID_ACTIONS = {"nothing", "display", "sleep", "hibernate"}
+SYSTEMD_SLEEP_CONFIG = Path("/etc/systemd/sleep.conf.d/90-sandman.conf")
 
 
 class ConfigError(Exception):
@@ -52,6 +54,11 @@ def config_path() -> Path:
 def hypr_bindings_path() -> Path:
     override = os.environ.get("SANDMAN_HYPR_BINDINGS_PATH")
     return Path(override).expanduser() if override else Path.home() / ".config/hypr/bindings.lua"
+
+
+def systemd_sleep_config_path() -> Path:
+    override = os.environ.get("SANDMAN_SYSTEMD_SLEEP_CONFIG_PATH")
+    return Path(override).expanduser() if override else SYSTEMD_SLEEP_CONFIG
 
 
 def read_json(
@@ -204,6 +211,7 @@ def current_config() -> dict[str, int | str]:
         "display": seconds(stored.get("display"), DEFAULT_DISPLAY, allow_off=True),
         "lock": stored_lock,
         "sleep": seconds(stored.get("sleep"), DEFAULT_SLEEP, allow_off=True),
+        "hibernate": seconds(stored.get("hibernate"), DEFAULT_HIBERNATE, allow_off=True),
         "lid": lid_action(stored.get("lid")),
     }
 
@@ -324,6 +332,38 @@ def set_sleep(value: int) -> dict[str, int | str]:
     return config
 
 
+def set_hibernate(value: int) -> dict[str, int | str]:
+    value = seconds(value, DEFAULT_HIBERNATE, allow_off=True)
+    config = current_config()
+    config["hibernate"] = value
+    atomic_write(config_path(), config)
+    return config
+
+
+def configure_hibernate(value: int) -> None:
+    """Set systemd's suspend-then-hibernate delay.
+
+    systemd owns the RTC wake alarm needed while the computer is suspended, so
+    this drop-in is necessarily system-wide. The normal UI invokes this command
+    through pkexec. Tests may redirect the path without requiring privileges.
+    """
+    path = systemd_sleep_config_path()
+    if not os.environ.get("SANDMAN_SYSTEMD_SLEEP_CONFIG_PATH") and os.geteuid() != 0:
+        raise ConfigError("administrator authorization is required to change the hibernate delay")
+    try:
+        if value == 0:
+            path.unlink(missing_ok=True)
+            return
+        atomic_write_text(
+            path,
+            "[Sleep]\n"
+            f"HibernateDelaySec={value}s\n"
+            "HibernateOnACPower=yes\n",
+        )
+    except OSError as error:
+        raise ConfigError(f"Could not update {path}: {error}") from error
+
+
 def set_lid(value: str) -> dict[str, int | str]:
     config = current_config()
     config["lid"] = value
@@ -363,6 +403,10 @@ def parser() -> argparse.ArgumentParser:
     lock.add_argument("seconds", type=timeout)
     sleep = commands.add_parser("set-sleep")
     sleep.add_argument("seconds", type=timeout)
+    hibernate = commands.add_parser("set-hibernate")
+    hibernate.add_argument("seconds", type=timeout)
+    configure_hibernate_parser = commands.add_parser("configure-hibernate")
+    configure_hibernate_parser.add_argument("seconds", type=timeout)
     lid = commands.add_parser("set-lid")
     lid.add_argument("action", choices=LID_ACTIONS)
     return result
@@ -383,6 +427,11 @@ def main() -> int:
             config = set_lock(args.seconds)
         elif args.command == "set-sleep":
             config = set_sleep(args.seconds)
+        elif args.command == "set-hibernate":
+            config = set_hibernate(args.seconds)
+        elif args.command == "configure-hibernate":
+            configure_hibernate(args.seconds)
+            config = {"hibernate": args.seconds}
         else:
             config = set_lid(args.action)
     except ConfigError as error:

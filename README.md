@@ -4,9 +4,10 @@ Set when your screen rests, locks, and sleeps from the Omarchy Quattro bar.
 
 ![Sandman screensaver, auto-lock, and sleep settings](preview.png)
 
-Sandman provides three simple controls:
+Sandman provides four simple controls:
 
 - **Screen saver** — starts the screen saver after the selected period of inactivity.
+- **Displays off** — turns the displays off (DPMS) after the selected period of inactivity while respecting idle inhibitors.
 - **Auto-lock** — locks the session after the selected period of inactivity.
 - **Sleep** — suspends the computer after the selected period of inactivity while respecting idle inhibitors.
 
@@ -26,9 +27,13 @@ omarchy bar plugin add lgse.sandman --section right
 
 ## Usage
 
-Click the Zzz icon in the bar and choose a timeout for each stage. Presets apply immediately; Custom accepts hours and minutes and applies on confirmation for screen saver, auto-lock, and sleep. Existing values that do not match a preset—including Omarchy's 2½-minute screen-saver default—open as Custom. Changes survive shell reloads and reboots.
+Click the Zzz icon in the bar and choose a timeout for each stage. Presets apply immediately; Custom accepts hours and minutes and applies on confirmation for screen saver, displays off, auto-lock, and sleep. Existing values that do not match a preset—including Omarchy's 2½-minute screen-saver default—open as Custom. Changes survive shell reloads and reboots.
 
-Sandman stores its state in `~/.config/omarchy/sandman.json`. The effective screen-saver and auto-lock values remain in Omarchy's standard `~/.config/omarchy/shell.json`.
+Sandman stores its state in `~/.config/omarchy/sandman.json`. The effective screen-saver and auto-lock values remain in Omarchy's standard `~/.config/omarchy/shell.json`; the displays-off and sleep timers are handled by Sandman itself and are not written there.
+
+## How displays off works
+
+Sandman uses Quickshell's idle monitor with inhibitor support and turns the displays off through Hyprland's `dpms` dispatcher. Applications holding an idle inhibitor can prevent the timer from firing, and any key press or mouse movement turns the displays back on.
 
 ## How sleep works
 

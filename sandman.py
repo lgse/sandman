@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Any
 
 DEFAULT_SCREENSAVER = 150
+DEFAULT_DISPLAY = 0
 DEFAULT_LOCK = 300
 DEFAULT_SLEEP = 0
 OFF_TIMEOUT = 7 * 24 * 60 * 60
@@ -81,6 +82,7 @@ def current_config() -> dict[str, int]:
     )
     return {
         "screensaver": stored_screensaver,
+        "display": seconds(stored.get("display"), DEFAULT_DISPLAY, allow_off=True),
         "lock": stored_lock,
         "sleep": seconds(stored.get("sleep"), DEFAULT_SLEEP, allow_off=True),
     }
@@ -126,6 +128,14 @@ def set_lock(value: int) -> dict[str, int]:
     return config
 
 
+def set_display(value: int) -> dict[str, int]:
+    value = seconds(value, DEFAULT_DISPLAY, allow_off=True)
+    config = current_config()
+    config["display"] = value
+    atomic_write(config_path(), config)
+    return config
+
+
 def set_sleep(value: int) -> dict[str, int]:
     value = seconds(value, DEFAULT_SLEEP, allow_off=True)
     config = current_config()
@@ -141,6 +151,8 @@ def parser() -> argparse.ArgumentParser:
     commands.add_parser("get")
     screensaver = commands.add_parser("set-screensaver")
     screensaver.add_argument("seconds", type=int)
+    display = commands.add_parser("set-display")
+    display.add_argument("seconds", type=int)
     lock = commands.add_parser("set-lock")
     lock.add_argument("seconds", type=int)
     sleep = commands.add_parser("set-sleep")
@@ -156,6 +168,8 @@ def main() -> int:
         config = current_config()
     elif args.command == "set-screensaver":
         config = set_screensaver(args.seconds)
+    elif args.command == "set-display":
+        config = set_display(args.seconds)
     elif args.command == "set-lock":
         config = set_lock(args.seconds)
     else:

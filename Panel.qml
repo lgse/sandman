@@ -361,7 +361,7 @@ Panel {
           Grid {
             id: screensaverGrid
             width: parent.width
-            columns: 3
+            columns: 4
             columnSpacing: Style.space(6)
             rowSpacing: Style.space(6)
 
@@ -370,7 +370,7 @@ Panel {
 
               Button {
                 required property var modelData
-                width: (screensaverGrid.width - screensaverGrid.columnSpacing * 2) / 3
+                width: (screensaverGrid.width - screensaverGrid.columnSpacing * 3) / 4
                 text: Model.formatDuration(modelData)
                 selected: !root.customEditorOpen
                   && root.screensaverSeconds === Number(modelData)
@@ -384,7 +384,7 @@ Panel {
             }
 
             Button {
-              width: (screensaverGrid.width - screensaverGrid.columnSpacing * 2) / 3
+              width: (screensaverGrid.width - screensaverGrid.columnSpacing * 3) / 4
               text: "Custom"
               selected: root.customEditorOpen || !root.screensaverUsesPreset
               enabled: !root.saving
@@ -473,7 +473,7 @@ Panel {
           Grid {
             id: displayGrid
             width: parent.width
-            columns: 3
+            columns: 4
             columnSpacing: Style.space(6)
             rowSpacing: Style.space(6)
 
@@ -482,7 +482,7 @@ Panel {
 
               Button {
                 required property var modelData
-                width: (displayGrid.width - displayGrid.columnSpacing * 2) / 3
+                width: (displayGrid.width - displayGrid.columnSpacing * 3) / 4
                 text: Model.formatDuration(modelData)
                 selected: !root.customDisplayEditorOpen
                   && root.displaySeconds === Number(modelData)
@@ -496,7 +496,7 @@ Panel {
             }
 
             Button {
-              width: (displayGrid.width - displayGrid.columnSpacing * 2) / 3
+              width: (displayGrid.width - displayGrid.columnSpacing * 3) / 4
               text: "Custom"
               selected: root.customDisplayEditorOpen || !root.displayUsesPreset
               enabled: !root.saving
@@ -585,7 +585,7 @@ Panel {
           Grid {
             id: lockGrid
             width: parent.width
-            columns: 3
+            columns: 4
             columnSpacing: Style.space(6)
             rowSpacing: Style.space(6)
 
@@ -594,7 +594,7 @@ Panel {
 
               Button {
                 required property var modelData
-                width: (lockGrid.width - lockGrid.columnSpacing * 2) / 3
+                width: (lockGrid.width - lockGrid.columnSpacing * 3) / 4
                 text: Model.formatDuration(modelData)
                 selected: !root.customLockEditorOpen
                   && root.lockSeconds === Number(modelData)
@@ -608,7 +608,7 @@ Panel {
             }
 
             Button {
-              width: (lockGrid.width - lockGrid.columnSpacing * 2) / 3
+              width: (lockGrid.width - lockGrid.columnSpacing * 3) / 4
               text: "Custom"
               selected: root.customLockEditorOpen || !root.lockUsesPreset
               enabled: !root.saving
@@ -685,7 +685,7 @@ Panel {
           Grid {
             id: sleepGrid
             width: parent.width
-            columns: 3
+            columns: 4
             columnSpacing: Style.space(6)
             rowSpacing: Style.space(6)
 
@@ -694,7 +694,7 @@ Panel {
 
               Button {
                 required property var modelData
-                width: (sleepGrid.width - sleepGrid.columnSpacing * 2) / 3
+                width: (sleepGrid.width - sleepGrid.columnSpacing * 3) / 4
                 text: Model.formatDuration(modelData)
                 selected: !root.customSleepEditorOpen
                   && root.sleepSeconds === Number(modelData)
@@ -708,7 +708,7 @@ Panel {
             }
 
             Button {
-              width: (sleepGrid.width - sleepGrid.columnSpacing * 2) / 3
+              width: (sleepGrid.width - sleepGrid.columnSpacing * 3) / 4
               text: "Custom"
               selected: root.customSleepEditorOpen || !root.sleepUsesPreset
               enabled: !root.saving
@@ -797,7 +797,7 @@ Panel {
           Grid {
             id: hibernateGrid
             width: parent.width
-            columns: 3
+            columns: 4
             columnSpacing: Style.space(6)
             rowSpacing: Style.space(6)
 
@@ -806,7 +806,7 @@ Panel {
 
               Button {
                 required property var modelData
-                width: (hibernateGrid.width - hibernateGrid.columnSpacing * 2) / 3
+                width: (hibernateGrid.width - hibernateGrid.columnSpacing * 3) / 4
                 text: Model.formatDuration(modelData)
                 selected: !root.customHibernateEditorOpen
                   && root.hibernateSeconds === Number(modelData)
@@ -822,7 +822,7 @@ Panel {
             }
 
             Button {
-              width: (hibernateGrid.width - hibernateGrid.columnSpacing * 2) / 3
+              width: (hibernateGrid.width - hibernateGrid.columnSpacing * 3) / 4
               text: "Custom"
               selected: root.customHibernateEditorOpen || !root.hibernateUsesPreset
               enabled: !root.saving && root.suspendThenHibernateAvailable

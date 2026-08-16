@@ -323,6 +323,7 @@ Panel {
                 selected: root.lidAction === String(modelData)
                 enabled: !root.saving
                   && (String(modelData) !== "hibernate" || root.hibernateAvailable)
+                opacity: enabled ? 1 : 0.38
                 focusable: true
                 bordered: true
                 foreground: root.contentForeground
@@ -811,6 +812,7 @@ Panel {
                   && root.hibernateSeconds === Number(modelData)
                 enabled: !root.saving && (Number(modelData) === 0
                   || root.suspendThenHibernateAvailable)
+                opacity: enabled ? 1 : 0.38
                 focusable: true
                 bordered: true
                 foreground: root.contentForeground
@@ -824,6 +826,7 @@ Panel {
               text: "Custom"
               selected: root.customHibernateEditorOpen || !root.hibernateUsesPreset
               enabled: !root.saving && root.suspendThenHibernateAvailable
+              opacity: enabled ? 1 : 0.38
               focusable: true
               bordered: true
               foreground: root.contentForeground
@@ -836,6 +839,8 @@ Panel {
             visible: root.customHibernateEditorOpen
             width: parent.width
             spacing: Style.space(8)
+            enabled: !root.saving && root.suspendThenHibernateAvailable
+            opacity: enabled ? 1 : 0.38
 
             NumberField {
               label: "Hours"

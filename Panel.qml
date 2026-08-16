@@ -1,4 +1,5 @@
 import QtQuick
+import QtQuick.Controls
 import Quickshell
 import qs.Commons
 import qs.Ui
@@ -181,11 +182,28 @@ Panel {
       anchors.fill: parent
       onCloseRequested: root.close()
       onTabRequested: function(direction) { root.switchPanel(direction) }
+      onMoveRequested: function(dx, dy) {
+        if (dy === 0) return
+        panelFlick.contentY = Math.max(0, Math.min(
+          panelFlick.contentY + dy * Style.space(56),
+          Math.max(0, panelFlick.contentHeight - panelFlick.height)))
+      }
 
-      Column {
-        id: content
-        width: parent.width
-        spacing: Style.space(12)
+      Flickable {
+        id: panelFlick
+        anchors.fill: parent
+        contentWidth: width
+        contentHeight: content.implicitHeight
+        clip: true
+        boundsBehavior: Flickable.StopAtBounds
+        flickableDirection: Flickable.VerticalFlick
+        interactive: contentHeight > height
+        ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }
+
+        Column {
+          id: content
+          width: panelFlick.width
+          spacing: Style.space(12)
 
         Row {
           anchors.horizontalCenter: parent.horizontalCenter
@@ -708,15 +726,16 @@ Panel {
           }
         }
 
-        Text {
-          visible: root.sandmanService && root.sandmanService.lastError !== ""
-          width: parent.width
-          text: root.sandmanService ? root.sandmanService.lastError : ""
-          color: Color.urgent
-          font.family: root.contentFontFamily
-          font.pixelSize: Style.font.caption
-          horizontalAlignment: Text.AlignHCenter
-          wrapMode: Text.WordWrap
+          Text {
+            visible: root.sandmanService && root.sandmanService.lastError !== ""
+            width: parent.width
+            text: root.sandmanService ? root.sandmanService.lastError : ""
+            color: Color.urgent
+            font.family: root.contentFontFamily
+            font.pixelSize: Style.font.caption
+            horizontalAlignment: Text.AlignHCenter
+            wrapMode: Text.WordWrap
+          }
         }
       }
     }

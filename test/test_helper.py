@@ -39,6 +39,17 @@ class SandmanHelperTest(unittest.TestCase):
         )
         return json.loads(completed.stdout)
 
+    def run_helper_expecting_failure(self, *arguments):
+        completed = subprocess.run(
+            ["python3", str(HELPER), *arguments],
+            env=self.environment,
+            check=False,
+            text=True,
+            capture_output=True,
+        )
+        self.assertNotEqual(completed.returncode, 0, completed.stdout)
+        return completed
+
     def test_init_inherits_omarchy_idle_settings_and_disables_sleep(self):
         expected = {"screensaver": 150, "lock": 300, "sleep": 0}
         self.assertEqual(self.run_helper("init"), expected)
@@ -94,6 +105,57 @@ class SandmanHelperTest(unittest.TestCase):
             {"screensaver": 150, "lock": 300, "sleep": 3600},
         )
         self.assertEqual(self.shell.read_text(), before)
+
+
+    def test_malformed_shell_config_is_left_intact(self):
+        self.run_helper("init")
+        damaged = '{"version": 1, "idle": {"lock": 300}, "bar": {"position": "top"},}'
+        self.shell.write_text(damaged, encoding="utf-8")
+
+        self.run_helper_expecting_failure("set-lock", "900")
+
+        self.assertEqual(self.shell.read_text(encoding="utf-8"), damaged)
+
+    def test_unreadable_shell_config_is_left_intact(self):
+        self.run_helper("init")
+        original = self.shell.read_text(encoding="utf-8")
+        self.shell.chmod(0o000)
+        try:
+            self.run_helper_expecting_failure("set-lock", "900")
+        finally:
+            self.shell.chmod(0o644)
+
+        self.assertEqual(self.shell.read_text(encoding="utf-8"), original)
+
+    def test_negative_timeout_is_rejected_rather_than_disabling_lock(self):
+        self.run_helper("init")
+
+        self.run_helper_expecting_failure("set-lock", "-5")
+
+        shell = json.loads(self.shell.read_text())
+        self.assertEqual(shell["idle"]["lock"], 300)
+        self.assertEqual(json.loads(self.config.read_text())["lock"], 300)
+
+    def test_absurd_timeout_is_rejected(self):
+        self.run_helper("init")
+
+        self.run_helper_expecting_failure("set-sleep", "2000000000")
+
+        self.assertEqual(json.loads(self.config.read_text())["sleep"], 0)
+
+    def test_missing_shell_config_still_initializes(self):
+        self.shell.unlink()
+        self.assertEqual(
+            self.run_helper("init"),
+            {"screensaver": 150, "lock": 300, "sleep": 0},
+        )
+
+    def test_damaged_sandman_config_is_rebuilt_from_shell(self):
+        self.config.write_text("{not json", encoding="utf-8")
+        self.assertEqual(
+            self.run_helper("init"),
+            {"screensaver": 150, "lock": 300, "sleep": 0},
+        )
 
 
 if __name__ == "__main__":

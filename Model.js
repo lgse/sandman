@@ -4,6 +4,21 @@ var screensaverPresets = [0, 60, 120, 300, 600, 900, 1800]
 var lockPresets = [0, 300, 600, 900, 1800, 3600]
 var sleepPresets = [0, 900, 1800, 3600, 7200]
 
+var maxTimeoutSeconds = 7 * 24 * 60 * 60
+
+// Validate a caller-supplied timeout, including one arriving over IPC.
+// Returns whole seconds in [0, maxTimeoutSeconds], or -1 when the value is
+// unusable. Callers must treat -1 as "reject" and never as 0: coercing a bad
+// value to 0 would read as "Off" and stand auto-lock down. The upper bound
+// keeps sleepDelaySeconds * 1000 inside a 32-bit int.
+function requestedSeconds(value) {
+  var number = Number(value)
+  if (!isFinite(number)) return -1
+  number = Math.round(number)
+  if (number < 0) return -1
+  return Math.min(number, maxTimeoutSeconds)
+}
+
 function normalizedSeconds(value, fallback, allowOff) {
   var number = Number(value)
   if (!isFinite(number)) return fallback

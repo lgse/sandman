@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import sys
 import tempfile
 from pathlib import Path
 from typing import Any
@@ -14,6 +15,11 @@ DEFAULT_SCREENSAVER = 150
 DEFAULT_LOCK = 300
 DEFAULT_SLEEP = 0
 OFF_TIMEOUT = 7 * 24 * 60 * 60
+MAX_TIMEOUT = OFF_TIMEOUT
+
+
+class ConfigError(Exception):
+    """An existing config file could not be read, so we must not rewrite it."""
 
 
 def shell_path() -> Path:
@@ -26,12 +32,43 @@ def config_path() -> Path:
     return Path(override).expanduser() if override else Path.home() / ".config/omarchy/sandman.json"
 
 
-def read_json(path: Path, fallback: dict[str, Any]) -> dict[str, Any]:
+def read_json(
+    path: Path, fallback: dict[str, Any], *, strict: bool = False
+) -> dict[str, Any]:
+    """Load a JSON object, distinguishing "absent" from "present but unusable".
+
+    A missing file legitimately means "no settings yet", so the fallback applies.
+    Anything else - unreadable, malformed, or not a JSON object - means the file
+    holds content we failed to understand. When strict, refuse rather than return
+    a fallback: callers merge into the result and write it back, so returning a
+    fallback here would replace a config we could not read with a bare stub.
+    """
     try:
-        value = json.loads(path.read_text(encoding="utf-8"))
-        return value if isinstance(value, dict) else fallback.copy()
-    except (FileNotFoundError, json.JSONDecodeError, OSError):
+        text = path.read_text(encoding="utf-8")
+    except FileNotFoundError:
         return fallback.copy()
+    except OSError as error:
+        if strict:
+            raise ConfigError(f"Could not read {path}: {error}") from error
+        return fallback.copy()
+
+    try:
+        value = json.loads(text)
+    except json.JSONDecodeError as error:
+        if strict:
+            raise ConfigError(
+                f"{path} is not valid JSON ({error}). "
+                "Fix or remove the file; refusing to overwrite it."
+            ) from error
+        return fallback.copy()
+
+    if not isinstance(value, dict):
+        if strict:
+            raise ConfigError(
+                f"{path} does not contain a JSON object; refusing to overwrite it."
+            )
+        return fallback.copy()
+    return value
 
 
 def seconds(value: Any, fallback: int, *, allow_off: bool = False) -> int:
@@ -64,7 +101,10 @@ def atomic_write(path: Path, value: dict[str, Any]) -> None:
 
 
 def current_config() -> dict[str, int]:
-    shell = read_json(shell_path(), {})
+    # shell.json belongs to Omarchy and holds unrelated settings, so it is read
+    # strictly. sandman.json is ours and fully derivable, so a damaged copy may
+    # be rebuilt from defaults.
+    shell = read_json(shell_path(), {}, strict=True)
     idle = shell.get("idle") if isinstance(shell.get("idle"), dict) else {}
     stored = read_json(config_path(), {})
     shell_screensaver = seconds(idle.get("screensaver"), DEFAULT_SCREENSAVER)
@@ -94,7 +134,7 @@ def initialize() -> dict[str, int]:
 
 
 def apply_idle_config(config: dict[str, int]) -> None:
-    shell = read_json(shell_path(), {"version": 1})
+    shell = read_json(shell_path(), {"version": 1}, strict=True)
     idle = shell.get("idle") if isinstance(shell.get("idle"), dict) else {}
     lock_timeout = config["lock"] if config["lock"] > 0 else OFF_TIMEOUT
     screensaver_timeout = (
@@ -112,7 +152,10 @@ def apply_idle_config(config: dict[str, int]) -> None:
 
 def set_screensaver(value: int) -> dict[str, int]:
     config = current_config()
-    config["screensaver"] = seconds(value, DEFAULT_SLEEP, allow_off=True)
+    # Fall back to the default, never to DEFAULT_SLEEP: with allow_off a 0
+    # fallback would turn an unusable value into "Off" and silently stand the
+    # screen saver down. Only an explicit 0 from the caller means Off.
+    config["screensaver"] = seconds(value, DEFAULT_SCREENSAVER, allow_off=True)
     apply_idle_config(config)
     atomic_write(config_path(), config)
     return config
@@ -120,7 +163,9 @@ def set_screensaver(value: int) -> dict[str, int]:
 
 def set_lock(value: int) -> dict[str, int]:
     config = current_config()
-    config["lock"] = seconds(value, DEFAULT_SLEEP, allow_off=True)
+    # Same reasoning as set_screensaver, and it matters more here: a 0 fallback
+    # would disable auto-lock on malformed input.
+    config["lock"] = seconds(value, DEFAULT_LOCK, allow_off=True)
     apply_idle_config(config)
     atomic_write(config_path(), config)
     return config
@@ -134,32 +179,54 @@ def set_sleep(value: int) -> dict[str, int]:
     return config
 
 
+def timeout(raw: str) -> int:
+    """Accept 0 (Off) or a positive timeout no larger than MAX_TIMEOUT.
+
+    Rejecting out-of-range values here keeps a bad number from reaching the
+    QML side, where the sleep timer multiplies seconds by 1000 into a 32-bit
+    int and would overflow past roughly 24 days.
+    """
+    try:
+        value = int(raw)
+    except ValueError:
+        raise argparse.ArgumentTypeError(f"{raw!r} is not a whole number of seconds")
+    if value < 0:
+        raise argparse.ArgumentTypeError("timeout cannot be negative")
+    if value > MAX_TIMEOUT:
+        raise argparse.ArgumentTypeError(f"timeout cannot exceed {MAX_TIMEOUT} seconds")
+    return value
+
+
 def parser() -> argparse.ArgumentParser:
     result = argparse.ArgumentParser(description=__doc__)
     commands = result.add_subparsers(dest="command", required=True)
     commands.add_parser("init")
     commands.add_parser("get")
     screensaver = commands.add_parser("set-screensaver")
-    screensaver.add_argument("seconds", type=int)
+    screensaver.add_argument("seconds", type=timeout)
     lock = commands.add_parser("set-lock")
-    lock.add_argument("seconds", type=int)
+    lock.add_argument("seconds", type=timeout)
     sleep = commands.add_parser("set-sleep")
-    sleep.add_argument("seconds", type=int)
+    sleep.add_argument("seconds", type=timeout)
     return result
 
 
 def main() -> int:
     args = parser().parse_args()
-    if args.command == "init":
-        config = initialize()
-    elif args.command == "get":
-        config = current_config()
-    elif args.command == "set-screensaver":
-        config = set_screensaver(args.seconds)
-    elif args.command == "set-lock":
-        config = set_lock(args.seconds)
-    else:
-        config = set_sleep(args.seconds)
+    try:
+        if args.command == "init":
+            config = initialize()
+        elif args.command == "get":
+            config = current_config()
+        elif args.command == "set-screensaver":
+            config = set_screensaver(args.seconds)
+        elif args.command == "set-lock":
+            config = set_lock(args.seconds)
+        else:
+            config = set_sleep(args.seconds)
+    except ConfigError as error:
+        print(f"sandman: {error}", file=sys.stderr)
+        return 1
     print(json.dumps(config, separators=(",", ":")))
     return 0
 

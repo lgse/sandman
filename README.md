@@ -57,6 +57,21 @@ rm -f ~/.config/omarchy/sandman.json
 
 Removing Sandman does not revert the screen-saver and lock timeouts already written to `shell.json`.
 
+This matters if either setting was left **Off**. Off is stored in `shell.json` as a
+seven-day timeout, so removing Sandman while auto-lock is Off leaves a machine that
+effectively never locks, with no Sandman UI left to notice it. Set anything you want
+back on *before* removing, or restore Omarchy's defaults afterwards:
+
+```sh
+python3 - <<'PY'
+import json, pathlib
+path = pathlib.Path.home() / ".config/omarchy/shell.json"
+config = json.loads(path.read_text())
+config.setdefault("idle", {}).update({"screensaver": 150, "lock": 300})
+path.write_text(json.dumps(config, indent=2) + "\n")
+PY
+```
+
 ## License
 
 MIT

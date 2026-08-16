@@ -42,16 +42,25 @@ Item {
     return true
   }
 
+  function runSetter(command, seconds) {
+    var value = Model.requestedSeconds(seconds)
+    if (value < 0) {
+      root.lastError = "Ignored an invalid timeout"
+      return false
+    }
+    return runHelper([command, String(value)])
+  }
+
   function setScreensaver(seconds) {
-    return runHelper(["set-screensaver", String(seconds)])
+    return runSetter("set-screensaver", seconds)
   }
 
   function setLock(seconds) {
-    return runHelper(["set-lock", String(seconds)])
+    return runSetter("set-lock", seconds)
   }
 
   function setSleep(seconds) {
-    return runHelper(["set-sleep", String(seconds)])
+    return runSetter("set-sleep", seconds)
   }
 
   function refresh() {
@@ -112,15 +121,28 @@ Item {
   function cancelIdleCycle() {
     sleepTimer.stop()
     screensaverGrace.stop()
+    screensaverStale.stop()
     root.idleCycleRunning = false
     resetScreensaverWindows()
   }
 
   function handleIdleChanged() {
-    if (sleepMonitor.isIdle) startIdleCycle()
-    else if (root.idleCycleRunning
-             && root.screensaverWindowCount === 0
-             && !screensaverGrace.running) cancelIdleCycle()
+    if (sleepMonitor.isIdle) {
+      screensaverStale.stop()
+      startIdleCycle()
+    } else if (root.idleCycleRunning
+               && root.screensaverWindowCount === 0
+               && !screensaverGrace.running) {
+      cancelIdleCycle()
+    } else if (root.idleCycleRunning && root.screensaverWindowCount > 0) {
+      // A window claiming the screensaver class is still tracked even though the
+      // user is active again. The window class is self-reported by any client and
+      // a closewindow event can be missed if the screensaver dies, so it must not
+      // hold the sleep timer open indefinitely - that would suspend the machine
+      // out from under an active user. Give the real screensaver a moment to
+      // close, then cancel regardless.
+      screensaverStale.restart()
+    }
   }
 
   function requestSuspend() {
@@ -190,6 +212,14 @@ Item {
     repeat: false
     onTriggered: if (root.idleCycleRunning && !sleepMonitor.isIdle
                      && root.screensaverWindowCount === 0) root.cancelIdleCycle()
+  }
+
+  // Backstop for tracked screensaver windows that outlive the user's return.
+  Timer {
+    id: screensaverStale
+    interval: 5000
+    repeat: false
+    onTriggered: if (root.idleCycleRunning && !sleepMonitor.isIdle) root.cancelIdleCycle()
   }
 
   Connections {

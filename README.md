@@ -4,6 +4,10 @@ Set when your screen rests, locks, and sleeps from the Omarchy Quattro bar.
 
 ![Sandman screensaver, auto-lock, and sleep settings](preview.png)
 
+On laptops, Sandman also shows lid-close actions:
+
+![Sandman laptop lid-close actions](preview-laptop.png)
+
 Sandman provides five simple controls:
 
 - **Lid close** — keeps the system default or does nothing, turns off the laptop display, suspends, or hibernates when the lid closes.

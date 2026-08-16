@@ -55,20 +55,29 @@ Item {
     return true
   }
 
+  function runSetter(command, seconds) {
+    var value = Model.requestedSeconds(seconds)
+    if (value < 0) {
+      root.lastError = "Ignored an invalid timeout"
+      return false
+    }
+    return runHelper([command, String(value)])
+  }
+
   function setScreensaver(seconds) {
-    return runHelper(["set-screensaver", String(seconds)])
+    return runSetter("set-screensaver", seconds)
   }
 
   function setLock(seconds) {
-    return runHelper(["set-lock", String(seconds)])
+    return runSetter("set-lock", seconds)
   }
 
   function setDisplay(seconds) {
-    return runHelper(["set-display", String(seconds)])
+    return runSetter("set-display", seconds)
   }
 
   function setSleep(seconds) {
-    return runHelper(["set-sleep", String(seconds)])
+    return runSetter("set-sleep", seconds)
   }
 
   function refresh() {

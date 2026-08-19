@@ -25,6 +25,16 @@ Each setting offers presets, Off, and a custom hours-and-minutes timeout. Omarch
 omarchy plugin add https://github.com/lgse/sandman.git --enable
 ```
 
+Install the privileged helper from the user-owned plugin checkout, then
+restart the shell if it is already running:
+
+```sh
+sudo install -D -o root -g root -m 0755 \
+  ~/.config/omarchy/plugins/lgse.sandman/sandman-configure-hibernate \
+  /usr/local/libexec/sandman-configure-hibernate
+omarchy restart shell
+```
+
 If needed, add it to the bar explicitly:
 
 ```sh
@@ -57,6 +67,9 @@ When **Hibernate after sleep** is enabled, Sandman instead requests `systemctl s
 - UPower
 - GLib (`gdbus`)
 - Polkit (`pkexec`), to change the systemd hibernate delay
+
+The helper is deliberately separate from `sandman.py`, because the latter is
+loaded from the user-owned plugin directory and must never be executed as root.
 
 ## Validate
 

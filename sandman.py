@@ -57,8 +57,7 @@ def hypr_bindings_path() -> Path:
 
 
 def systemd_sleep_config_path() -> Path:
-    override = os.environ.get("SANDMAN_SYSTEMD_SLEEP_CONFIG_PATH")
-    return Path(override).expanduser() if override else SYSTEMD_SLEEP_CONFIG
+    return SYSTEMD_SLEEP_CONFIG
 
 
 def diagnostic_path(environment_name: str, default: str) -> Path:
@@ -437,11 +436,12 @@ def configure_hibernate(value: int) -> None:
     """Set systemd's suspend-then-hibernate delay.
 
     systemd owns the RTC wake alarm needed while the computer is suspended, so
-    this drop-in is necessarily system-wide. The normal UI invokes this command
-    through pkexec. Tests may redirect the path without requiring privileges.
+    this drop-in is necessarily system-wide. The normal UI invokes a separately
+    installed, root-owned helper through pkexec. This development helper never
+    redirects its privileged write through the environment.
     """
     path = systemd_sleep_config_path()
-    if not os.environ.get("SANDMAN_SYSTEMD_SLEEP_CONFIG_PATH") and os.geteuid() != 0:
+    if os.geteuid() != 0:
         raise ConfigError("administrator authorization is required to change the hibernate delay")
     try:
         if value == 0:

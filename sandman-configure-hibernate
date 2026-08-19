@@ -1,0 +1,59 @@
+#!/usr/bin/python3
+"""Privileged systemd sleep drop-in writer for Sandman."""
+
+import argparse
+import os
+import tempfile
+from pathlib import Path
+
+
+MAX_TIMEOUT = 7 * 24 * 60 * 60
+CONFIG = Path("/etc/systemd/sleep.conf.d/90-sandman.conf")
+
+
+def seconds(raw: str) -> int:
+    try:
+        value = int(raw)
+    except ValueError as error:
+        raise argparse.ArgumentTypeError("seconds must be a whole number") from error
+    if value < 0 or value > MAX_TIMEOUT:
+        raise argparse.ArgumentTypeError(
+            f"seconds must be between 0 and {MAX_TIMEOUT}"
+        )
+    return value
+
+
+def main() -> int:
+    if os.geteuid() != 0:
+        raise SystemExit("administrator authorization is required")
+
+    parser = argparse.ArgumentParser()
+    parser.add_argument("command", choices=("configure-hibernate",))
+    parser.add_argument("seconds", type=seconds)
+    args = parser.parse_args()
+
+    if args.seconds == 0:
+        CONFIG.unlink(missing_ok=True)
+        return 0
+
+    CONFIG.parent.mkdir(parents=True, exist_ok=True)
+    fd, temporary = tempfile.mkstemp(prefix=f".{CONFIG.name}.", dir=CONFIG.parent)
+    temporary_path = Path(temporary)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as stream:
+            stream.write(
+                "[Sleep]\n"
+                f"HibernateDelaySec={args.seconds}s\n"
+                "HibernateOnACPower=yes\n"
+            )
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.chmod(temporary_path, 0o644)
+        os.replace(temporary_path, CONFIG)
+    finally:
+        temporary_path.unlink(missing_ok=True)
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

@@ -164,14 +164,8 @@ class SandmanHelperTest(unittest.TestCase):
         self.assertEqual(self.shell.read_text(), before)
 
     def test_configure_hibernate_writes_and_removes_systemd_dropin(self):
-        self.run_helper("configure-hibernate", "7200")
-        self.assertEqual(
-            self.systemd_sleep_config.read_text(),
-            "[Sleep]\nHibernateDelaySec=7200s\nHibernateOnACPower=yes\n",
-        )
-
-        self.run_helper("configure-hibernate", "0")
-
+        completed = self.run_helper_expecting_failure("configure-hibernate", "7200")
+        self.assertIn("administrator authorization is required", completed.stderr)
         self.assertFalse(self.systemd_sleep_config.exists())
 
     def test_display_only_changes_sandman_state(self):

@@ -25,6 +25,16 @@ Each setting offers presets, Off, and a custom hours-and-minutes timeout. Omarch
 omarchy plugin add https://github.com/lgse/sandman.git --enable
 ```
 
+Install the privileged helper from the user-owned plugin checkout, then
+restart the shell if it is already running:
+
+```sh
+sudo install -D -o root -g root -m 0755 \
+  ~/.config/omarchy/plugins/lgse.sandman/sandman-configure-hibernate \
+  /usr/local/libexec/sandman-configure-hibernate
+omarchy restart shell
+```
+
 If needed, add it to the bar explicitly:
 
 ```sh
@@ -58,6 +68,9 @@ When **Hibernate after sleep** is enabled, Sandman instead requests `systemctl s
 - GLib (`gdbus`)
 - Polkit (`pkexec`), to change the systemd hibernate delay
 
+The helper is deliberately separate from `sandman.py`, because the latter is
+loaded from the user-owned plugin directory and must never be executed as root.
+
 ## Validate
 
 ```sh
@@ -72,6 +85,7 @@ qmllint -I "$OMARCHY_PATH/shell" BarWidget.qml Panel.qml Service.qml LidService.
 omarchy plugin remove lgse.sandman
 rm -f ~/.config/omarchy/sandman.json
 sudo rm -f /etc/systemd/sleep.conf.d/90-sandman.conf
+sudo rm -f /usr/local/libexec/sandman-configure-hibernate
 ```
 
 Removing Sandman does not revert the screen-saver and lock timeouts already written to `shell.json`. If Sandman is removed while a managed lid action is selected, remove the managed block between `-- BEGIN Sandman lid action override` and `-- END Sandman lid action override` from `~/.config/hypr/bindings.lua`, or reinstall Sandman and select **System default** before removing it.

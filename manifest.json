@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "id": "lgse.sandman",
   "name": "Sandman",
-  "version": "0.9.1",
+  "version": "0.9.2",
   "author": "Pierre Berube",
   "license": "MIT",
   "description": "Set lid-close actions and when your screen rests, locks, sleeps, and hibernates.",

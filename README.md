@@ -85,6 +85,7 @@ qmllint -I "$OMARCHY_PATH/shell" BarWidget.qml Panel.qml Service.qml LidService.
 omarchy plugin remove lgse.sandman
 rm -f ~/.config/omarchy/sandman.json
 sudo rm -f /etc/systemd/sleep.conf.d/90-sandman.conf
+sudo rm -f /usr/local/libexec/sandman-configure-hibernate
 ```
 
 Removing Sandman does not revert the screen-saver and lock timeouts already written to `shell.json`. If Sandman is removed while a managed lid action is selected, remove the managed block between `-- BEGIN Sandman lid action override` and `-- END Sandman lid action override` from `~/.config/hypr/bindings.lua`, or reinstall Sandman and select **System default** before removing it.

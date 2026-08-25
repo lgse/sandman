@@ -163,7 +163,9 @@ Item {
       screensaverGrace.stop()
     } else if (name === "closewindow" && root.screensaverWindows[String(parts[0] || "")]) {
       setScreensaverWindow(parts[0], false)
-      if (root.screensaverWindowCount === 0) cancelIdleCycle()
+      // A closed screensaver does not mean the user came back: omarchy-system-lock  also kills it
+      // Cancelling here would stop the sleep timer whenever lock lands before sleep.
+      if (root.screensaverWindowCount === 0 && !idleMonitor.isIdle) cancelIdleCycle()
     }
   }
 

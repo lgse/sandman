@@ -124,6 +124,7 @@ def seconds(value: Any, fallback: int, *, allow_off: bool = False) -> int:
 
 
 def atomic_write_text(path: Path, text: str) -> None:
+    path = path.resolve()  # os.replace would swap a dotfiles symlink for a regular file
     path.parent.mkdir(parents=True, exist_ok=True)
     mode = path.stat().st_mode & 0o777 if path.exists() else 0o600
     fd, temporary = tempfile.mkstemp(prefix=f".{path.name}.", dir=path.parent)

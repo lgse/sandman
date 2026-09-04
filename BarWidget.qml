@@ -26,6 +26,9 @@ BarWidget {
     panelLoader.item.anchorItem = button
     panelLoader.item.hostWidget = root
     panelLoader.item.sandmanService = root.sandmanService
+    // Without this the panel cannot read its own shell.json entry, so a
+    // setting like panelColumns would only ever be its default.
+    panelLoader.item.settings = root.settings
   }
 
   implicitWidth: button.implicitWidth
@@ -33,6 +36,7 @@ BarWidget {
 
   onBarChanged: injectPanel()
   onSandmanServiceChanged: injectPanel()
+  onSettingsChanged: injectPanel()
 
   Loader {
     id: panelLoader

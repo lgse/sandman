@@ -30,6 +30,8 @@ Item {
   readonly property int sleepSeconds: Model.normalizedSeconds(configState.sleep, 0, true)
   readonly property int hibernateSeconds: Model.normalizedSeconds(configState.hibernate, 0, true)
   readonly property string lidAction: Model.normalizedLidAction(configState.lid)
+  property var lockService: null
+  readonly property bool sessionLocked: !!(lockService && lockService.locked)
   readonly property bool lidPresent: lidService.present
   readonly property bool lidClosed: lidService.closed
   readonly property string internalDisplay: lidService.internalDisplay
@@ -57,6 +59,25 @@ Item {
   }
   // This helper is installed root-owned; never execute plugin code through pkexec.
   readonly property string hibernateHelperPath: "/usr/local/libexec/sandman-configure-hibernate"
+
+  function resolveLockService() {
+    if (root.lockService || !root.shell || !root.shell.serviceFor) return
+    root.lockService = root.shell.serviceFor("omarchy.lock")
+  }
+
+  function cycleState() {
+    return {
+      cycleRunning: root.idleCycleRunning,
+      idle: idleMonitor.isIdle,
+      sessionLocked: root.sessionLocked,
+      screensaverWindows: root.screensaverWindowCount,
+      graceRunning: screensaverGrace.running
+    }
+  }
+
+  function cancelIfUserReturned() {
+    if (Model.shouldCancelCycle(cycleState())) cancelIdleCycle()
+  }
 
   function runHelper(arguments) {
     if (settingsProcess.running || hibernateConfigProcess.running) return false
@@ -163,14 +184,13 @@ Item {
       screensaverGrace.stop()
     } else if (name === "closewindow" && root.screensaverWindows[String(parts[0] || "")]) {
       setScreensaverWindow(parts[0], false)
-      // A closed screensaver does not mean the user came back: omarchy-system-lock  also kills it
-      // Cancelling here would stop the sleep timer whenever lock lands before sleep.
-      if (root.screensaverWindowCount === 0 && !idleMonitor.isIdle) cancelIdleCycle()
+      if (root.screensaverWindowCount === 0) cancelIfUserReturned()
     }
   }
 
   function startIdleCycle() {
     if (!root.cycleEnabled || root.idleCycleRunning) return
+    resolveLockService()
     root.idleCycleRunning = true
     resetScreensaverWindows()
 
@@ -208,10 +228,13 @@ Item {
 
   function handleIdleChanged() {
     if (idleMonitor.isIdle) startIdleCycle()
-    else if (root.idleCycleRunning
-             && root.screensaverWindowCount === 0
-             && !screensaverGrace.running) cancelIdleCycle()
+    else cancelIfUserReturned()
   }
+
+  // Unlocking is the one event only the user can produce, so it ends the cycle
+  onSessionLockedChanged: if (!root.sessionLocked && root.idleCycleRunning) cancelIdleCycle()
+  onShellChanged: resolveLockService()
+  Component.onCompleted: resolveLockService()
 
   function turnDisplaysOff() {
     if (!root.displayEnabled || displayOffProcess.running) return
@@ -340,8 +363,9 @@ Item {
     id: screensaverGrace
     interval: 3000
     repeat: false
-    onTriggered: if (root.idleCycleRunning && !idleMonitor.isIdle
-                     && root.screensaverWindowCount === 0) root.cancelIdleCycle()
+    // The grace is over by definition here; do not let its own state veto the test.
+    onTriggered: if (Model.shouldCancelCycle(Object.assign(root.cycleState(),
+                       { graceRunning: false }))) root.cancelIdleCycle()
   }
 
   // When the screensaver boundary comes after the first idle stage (e.g. displays
@@ -413,6 +437,7 @@ Item {
         suspendThenHibernateAvailable: root.suspendThenHibernateAvailable,
         hibernateDiagnostic: root.hibernateDiagnostic,
         idle: idleMonitor.isIdle,
+        sessionLocked: root.sessionLocked,
         idleCycleRunning: root.idleCycleRunning,
         displayDelay: root.displayDelaySeconds,
         displaysOff: root.displaysOff,

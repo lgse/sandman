@@ -75,3 +75,22 @@ test("parseConfig normalizes the hibernate-after-sleep delay", () => {
   assert.equal(model.parseConfig('{"hibernate":7200}').hibernate, 7200);
   assert.equal(model.parseConfig('{"hibernate":-1}').hibernate, 0);
 });
+
+test("shouldCancelCycle only treats a real user return as a cancel", () => {
+  const running = {
+    cycleRunning: true, idle: false, sessionLocked: false,
+    screensaverWindows: 0, graceRunning: false
+  };
+  // Nothing of ours is on screen: the activity is the user.
+  assert.equal(model.shouldCancelCycle(running), true);
+  // Each stage, in any order and on its own, keeps the cycle armed.
+  assert.equal(model.shouldCancelCycle({ ...running, sessionLocked: true }), false);
+  assert.equal(model.shouldCancelCycle({ ...running, screensaverWindows: 1 }), false);
+  assert.equal(model.shouldCancelCycle({ ...running, graceRunning: true }), false);
+  // The lock killing the screensaver is not a dismissal.
+  assert.equal(model.shouldCancelCycle({ ...running, sessionLocked: true, screensaverWindows: 0 }), false);
+  // Still idle, or no cycle to cancel.
+  assert.equal(model.shouldCancelCycle({ ...running, idle: true }), false);
+  assert.equal(model.shouldCancelCycle({ ...running, cycleRunning: false }), false);
+  assert.equal(model.shouldCancelCycle(undefined), false);
+});

@@ -99,6 +99,34 @@ class SandmanHelperTest(unittest.TestCase):
         self.assertEqual(shell["idle"], {"screensaver": 600, "lock": 300})
         self.assertTrue(shell["unrelated"])
 
+    def test_symlinked_configs_keep_links_and_update_targets(self):
+        base = self.config.parent
+        shell_target = base / "dotfiles" / "shell.json"
+        config_target = base / "dotfiles" / "sandman.json"
+        shell_target.parent.mkdir()
+        self.shell.rename(shell_target)
+        self.shell.symlink_to(shell_target)
+        self.config.symlink_to(config_target)
+
+        self.run_helper("init")
+        self.run_helper("set-lock", "900")
+
+        self.assertTrue(self.shell.is_symlink())
+        self.assertTrue(self.config.is_symlink())
+        self.assertEqual(json.loads(shell_target.read_text())["idle"]["lock"], 900)
+        self.assertEqual(json.loads(config_target.read_text())["lock"], 900)
+
+    def test_symlinked_hypr_bindings_keep_link_and_update_target(self):
+        target = self.hypr_bindings.parent / "dotfiles" / "bindings.lua"
+        target.parent.mkdir()
+        self.hypr_bindings.rename(target)
+        self.hypr_bindings.symlink_to(target)
+
+        self.run_helper("set-lid", "display")
+
+        self.assertTrue(self.hypr_bindings.is_symlink())
+        self.assertIn("BEGIN Sandman lid action override", target.read_text())
+
     def test_lock_only_changes_auto_lock_timeout(self):
         self.run_helper("init")
         self.assertEqual(

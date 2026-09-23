@@ -105,8 +105,6 @@ function customSeconds(hours, minutes) {
   return (safeHours * 60 + safeMinutes) * 60
 }
 
-// The idle cycle has to survive every stage it sets in motion - the screensaver
-// opening, the displays going off, the lock landing - in any order.
 function shouldCancelCycle(state) {
   var current = state || {}
   if (!current.cycleRunning) return false

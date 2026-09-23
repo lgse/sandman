@@ -71,7 +71,7 @@ Item {
       idle: idleMonitor.isIdle,
       sessionLocked: root.sessionLocked,
       screensaverWindows: root.screensaverWindowCount,
-      graceRunning: screensaverGrace.running
+      graceRunning: screensaverGrace.running || screensaverCloseGrace.running
     }
   }
 
@@ -184,7 +184,7 @@ Item {
       screensaverGrace.stop()
     } else if (name === "closewindow" && root.screensaverWindows[String(parts[0] || "")]) {
       setScreensaverWindow(parts[0], false)
-      if (root.screensaverWindowCount === 0) cancelIfUserReturned()
+      if (root.screensaverWindowCount === 0) screensaverCloseGrace.restart()
     }
   }
 
@@ -220,6 +220,7 @@ Item {
     displayTimer.stop()
     sleepTimer.stop()
     screensaverGrace.stop()
+    screensaverCloseGrace.stop()
     screensaverBoundaryTimer.stop()
     root.idleCycleRunning = false
     resetScreensaverWindows()
@@ -231,7 +232,6 @@ Item {
     else cancelIfUserReturned()
   }
 
-  // Unlocking is the one event only the user can produce, so it ends the cycle
   onSessionLockedChanged: if (!root.sessionLocked && root.idleCycleRunning) cancelIdleCycle()
   onShellChanged: resolveLockService()
   Component.onCompleted: resolveLockService()
@@ -363,9 +363,17 @@ Item {
     id: screensaverGrace
     interval: 3000
     repeat: false
-    // The grace is over by definition here; do not let its own state veto the test.
     onTriggered: if (Model.shouldCancelCycle(Object.assign(root.cycleState(),
-                       { graceRunning: false }))) root.cancelIdleCycle()
+                       { graceRunning: screensaverCloseGrace.running }))) root.cancelIdleCycle()
+  }
+
+  // Hyprland can announce the screensaver closing before Omarchy reports the lock.
+  Timer {
+    id: screensaverCloseGrace
+    interval: 1500
+    repeat: false
+    onTriggered: if (Model.shouldCancelCycle(Object.assign(root.cycleState(),
+                       { graceRunning: screensaverGrace.running }))) root.cancelIdleCycle()
   }
 
   // When the screensaver boundary comes after the first idle stage (e.g. displays

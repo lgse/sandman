@@ -4,6 +4,7 @@ import Quickshell.Hyprland
 import Quickshell.Io
 import Quickshell.Wayland
 import "Model.js" as Model
+import "bridge" as SandmanBridge
 
 Item {
   id: root
@@ -234,7 +235,17 @@ Item {
 
   onSessionLockedChanged: if (!root.sessionLocked && root.idleCycleRunning) cancelIdleCycle()
   onShellChanged: resolveLockService()
-  Component.onCompleted: resolveLockService()
+  Component.onCompleted: {
+    // Publish for widgets hosted by replacement bars, whose `bar.shell`
+    // facade cannot resolve plugin services. See bridge/Bridge.qml; the
+    // host facade stays the primary path.
+    SandmanBridge.Bridge.service = root
+    resolveLockService()
+  }
+
+  // Unpublish so a widget falling back to the bridge never binds to a
+  // dying instance.
+  Component.onDestruction: if (SandmanBridge.Bridge.service === root) SandmanBridge.Bridge.service = null
 
   function turnDisplaysOff() {
     if (!root.displayEnabled || displayOffProcess.running) return

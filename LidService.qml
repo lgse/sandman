@@ -44,6 +44,11 @@ Item {
     if (!root.stateKnown) {
       root.closed = next
       root.stateKnown = true
+      // The config can finish loading before the first lid reading arrives
+      // (onActionChanged then skips handleClosed because stateKnown is false).
+      // Apply the display action for an already-closed lid; power actions stay
+      // skipped so a shell start never suspends the computer.
+      if (next && root.action === "display") turnDisplayOff()
       return
     }
     if (root.closed === next) return
@@ -133,6 +138,13 @@ Item {
     if (root.displayOff && root.action !== "display") root.turnDisplayOn()
     root.scheduleStateQuery()
     if (root.stateKnown && root.closed) Qt.callLater(root.handleClosed)
+  }
+
+  // The internal display name resolves asynchronously too; if the lid was
+  // already closed when it arrived empty, apply the display action now.
+  onInternalDisplayChanged: {
+    if (root.stateKnown && root.closed && root.action === "display"
+        && !root.displayOff && root.internalDisplay !== "") turnDisplayOff()
   }
 
   onInhibitorWhatChanged: restartMonitor()

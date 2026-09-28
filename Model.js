@@ -105,6 +105,16 @@ function customSeconds(hours, minutes) {
   return (safeHours * 60 + safeMinutes) * 60
 }
 
+function shouldCancelCycle(state) {
+  var current = state || {}
+  if (!current.cycleRunning) return false
+  if (current.idle) return false
+  if (current.sessionLocked) return false
+  if (Number(current.screensaverWindows) > 0) return false
+  if (current.graceRunning) return false
+  return true
+}
+
 function statusSummary(screensaver, display, lock, sleep, hibernate) {
   var summary = "Screen " + formatDuration(screensaver)
     + " · Displays " + formatDuration(display)

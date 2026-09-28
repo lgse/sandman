@@ -124,6 +124,8 @@ def seconds(value: Any, fallback: int, *, allow_off: bool = False) -> int:
 
 
 def atomic_write_text(path: Path, text: str) -> None:
+    # Replace a symlink's target rather than the link itself.
+    path = path.resolve()
     path.parent.mkdir(parents=True, exist_ok=True)
     mode = path.stat().st_mode & 0o777 if path.exists() else 0o600
     fd, temporary = tempfile.mkstemp(prefix=f".{path.name}.", dir=path.parent)

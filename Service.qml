@@ -253,8 +253,8 @@ Item {
     if (!root.sleepEnabled || suspendProcess.running) return
     root.suspendPending = true
     root.lastError = ""
-    suspendProcess.command = ["systemctl", root.hibernateSeconds > 0
-      ? "suspend-then-hibernate" : "suspend"]
+    suspendProcess.command = ["python3", root.helperPath, "sleep"]
+      .concat(root.hibernateSeconds > 0 ? ["--hibernate-after"] : [])
     suspendProcess.running = true
   }
 
@@ -269,6 +269,7 @@ Item {
     id: lidService
     action: root.lidAction
     hibernateAfterSleep: root.hibernateSeconds > 0
+    helperPath: root.helperPath
     onErrorOccurred: function(message) { root.lastError = message }
   }
 

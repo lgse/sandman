@@ -313,5 +313,51 @@ class SandmanHelperTest(unittest.TestCase):
         )
 
 
+class SleepActionTest(unittest.TestCase):
+    def setUp(self):
+        self.temporary = tempfile.TemporaryDirectory()
+        self.drm = Path(self.temporary.name) / "drm"
+        self.drm.mkdir()
+        self.environment = {
+            **os.environ,
+            "SANDMAN_DRM_CLASS_PATH": str(self.drm),
+            "SANDMAN_SYSTEMCTL": "echo",
+        }
+
+    def tearDown(self):
+        self.temporary.cleanup()
+
+    def add_card(self, name, removable):
+        device = self.drm / name / "device"
+        device.mkdir(parents=True)
+        (device / "removable").write_text(f"{removable}\n", encoding="utf-8")
+
+    def sleep(self, *arguments):
+        completed = subprocess.run(
+            ["python3", str(HELPER), "sleep", *arguments],
+            env=self.environment,
+            check=True,
+            text=True,
+            capture_output=True,
+        )
+        return completed.stdout.strip()
+
+    def test_hibernates_after_sleep_with_only_internal_gpu(self):
+        self.add_card("card0", "fixed")
+        self.assertEqual(self.sleep("--hibernate-after"), "suspend-then-hibernate")
+
+    def test_plain_suspend_while_egpu_attached(self):
+        self.add_card("card0", "removable")
+        self.add_card("card1", "fixed")
+        self.assertEqual(self.sleep("--hibernate-after"), "suspend")
+
+    def test_plain_suspend_when_hibernate_after_sleep_is_off(self):
+        self.assertEqual(self.sleep(), "suspend")
+
+    def test_missing_drm_class_does_not_block_hibernate(self):
+        self.environment["SANDMAN_DRM_CLASS_PATH"] = str(self.drm / "missing")
+        self.assertEqual(self.sleep("--hibernate-after"), "suspend-then-hibernate")
+
+
 if __name__ == "__main__":
     unittest.main()

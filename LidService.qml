@@ -11,6 +11,7 @@ Item {
 
   property string action: "system"
   property bool hibernateAfterSleep: false
+  property string helperPath: ""
   property bool present: false
   property bool closed: false
   property bool stateKnown: false
@@ -107,7 +108,10 @@ Item {
       root.errorOccurred("Suspend then hibernate is not available on this computer")
       return
     }
-    powerProcess.command = ["systemctl", effectiveAction]
+    // The helper falls back to plain suspend while an eGPU is attached.
+    powerProcess.command = effectiveAction === "suspend-then-hibernate"
+      ? ["python3", root.helperPath, "sleep", "--hibernate-after"]
+      : ["systemctl", effectiveAction]
     powerProcess.running = true
   }
 

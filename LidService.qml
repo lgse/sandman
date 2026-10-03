@@ -19,6 +19,7 @@ Item {
   property string internalDisplay: ""
   property bool displayOff: false
   property bool displayWakePending: false
+  property string pendingDisplayAction: ""
   property string powerAction: ""
   property bool monitorRestarting: false
 
@@ -69,28 +70,56 @@ Item {
   }
 
   function turnDisplayOff() {
-    if (root.displayOff || displayOffProcess.running) return
+    if (root.displayOff || displayOffProcess.running || activeDisplayProcess.running) return
     if (!root.internalDisplay) {
       root.errorOccurred("Could not find the laptop's internal display")
       return
     }
     root.displayOff = true
     root.displayWakePending = false
-    displayOffProcess.command = ["hyprctl", "dispatch", "hl.dsp.dpms({ action = \"off\", monitor = \"" + root.internalDisplay + "\" })"]
-    displayOffProcess.running = true
+    queryActiveDisplay("off")
   }
 
   function turnDisplayOn() {
     if (!root.displayOff) return
-    if (displayOffProcess.running) {
+    if (displayOffProcess.running || activeDisplayProcess.running) {
       root.displayWakePending = true
       return
     }
     root.displayOff = false
     root.displayWakePending = false
     if (!root.internalDisplay || displayOnProcess.running) return
-    displayOnProcess.command = ["hyprctl", "dispatch", "hl.dsp.dpms({ action = \"enable\", monitor = \"" + root.internalDisplay + "\" })"]
-    displayOnProcess.running = true
+    queryActiveDisplay("enable")
+  }
+
+  // Hyprland's Lua dpms dispatcher applies to EVERY enabled monitor when its
+  // monitor selector matches nothing (dsp_dpms hands Actions::dpms no monitor).
+  // The internal output stops matching the moment Omarchy's clamshell handling
+  // disables it on the same lid close, so an unguarded "off" blanks the
+  // external displays too. Only dispatch while the output is still active.
+  function queryActiveDisplay(action) {
+    root.pendingDisplayAction = action
+    activeDisplayProcess.running = true
+  }
+
+  function dispatchDisplayAction(active) {
+    var action = root.pendingDisplayAction
+    root.pendingDisplayAction = ""
+    if (action === "off") {
+      if (active === false) {
+        // Already disabled by something else: nothing to turn off now, and
+        // nothing for the lid open to turn back on.
+        root.displayOff = false
+        root.displayWakePending = false
+        return
+      }
+      displayOffProcess.command = ["hyprctl", "dispatch", "hl.dsp.dpms({ action = \"off\", monitor = \"" + root.internalDisplay + "\" })"]
+      displayOffProcess.running = true
+    } else if (action === "enable") {
+      if (active === false) return
+      displayOnProcess.command = ["hyprctl", "dispatch", "hl.dsp.dpms({ action = \"enable\", monitor = \"" + root.internalDisplay + "\" })"]
+      displayOnProcess.running = true
+    }
   }
 
   function reapplyAfterGlobalDisplayOn() {
@@ -258,6 +287,28 @@ Item {
       if (!root.monitorRestarting && root.managed && root.present && exitCode !== 0)
         root.errorOccurred("Could not monitor laptop lid events")
       if (!root.monitorRestarting) Qt.callLater(root.ensureMonitorRunning)
+    }
+  }
+
+  Process {
+    id: activeDisplayProcess
+    command: ["hyprctl", "monitors", "-j"]
+    stdout: StdioCollector {
+      waitForEnd: true
+      onStreamFinished: {
+        // null means unknown (hyprctl missing or unparsable output): fall
+        // through to the dispatch so its own failure is still reported.
+        var active = null
+        try {
+          var monitors = JSON.parse(String(text))
+          active = false
+          for (var i = 0; i < monitors.length; i++) {
+            if (String(monitors[i].name || "") === root.internalDisplay && monitors[i].disabled !== true) active = true
+          }
+        } catch (error) {
+        }
+        root.dispatchDisplayAction(active)
+      }
     }
   }
 

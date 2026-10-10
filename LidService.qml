@@ -88,11 +88,9 @@ Item {
     queryActiveDisplay("enable")
   }
 
-  // Hyprland's Lua dpms dispatcher applies to EVERY enabled monitor when its
-  // monitor selector matches nothing (dsp_dpms hands Actions::dpms no monitor).
-  // The internal output stops matching the moment Omarchy's clamshell handling
-  // disables it on the same lid close, so an unguarded "off" blanks the
-  // external displays too. Only dispatch while the output is still active.
+  // hl.dsp.dpms falls back to every enabled monitor when its selector matches
+  // nothing, which happens once Omarchy's clamshell handling has disabled the
+  // internal output on the same lid close.
   function queryActiveDisplay(action) {
     root.pendingDisplayAction = action
     activeDisplayProcess.running = true
@@ -103,8 +101,7 @@ Item {
     root.pendingDisplayAction = ""
     if (action === "off") {
       if (active === false) {
-        // Already disabled by something else: nothing to turn off now, and
-        // nothing for the lid open to turn back on.
+        // Disabled elsewhere, so the lid open has nothing to restore.
         root.displayOff = false
         root.displayWakePending = false
         return
@@ -288,8 +285,7 @@ Item {
     stdout: StdioCollector {
       waitForEnd: true
       onStreamFinished: {
-        // null means unknown (hyprctl missing or unparsable output): fall
-        // through to the dispatch so its own failure is still reported.
+        // Unparsable output stays null so the dispatch still reports failure.
         var active = null
         try {
           var monitors = JSON.parse(String(text))

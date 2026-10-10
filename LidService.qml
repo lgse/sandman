@@ -6,6 +6,15 @@ import Quickshell.Io
 // custom action, this service takes a low-level logind inhibitor and responds to
 // lid state changes itself. Selecting "system" releases the inhibitor and puts
 // logind back in charge.
+//
+// The inhibitor is NOT a child of the shell. It lives in a transient systemd user
+// unit (sandman-lid-<flavour>-<expiry>.service), so restarting the shell, which
+// kills every child process, cannot drop it. A lock that died with the shell left
+// a window in which logind, seeing a lid that was already closed, suspended the
+// machine the instant the shell restarted. Each unit expires on its own after
+// leaseSeconds, and this service keeps renewing it while it runs, so a shell that
+// is gone for good (plugin disabled or removed) releases the lock within
+// leaseSeconds instead of holding it until logout.
 Item {
   id: root
 
@@ -22,7 +31,13 @@ Item {
   property bool displayWakePending: false
   property string pendingDisplayAction: ""
   property string powerAction: ""
-  property bool monitorRestarting: false
+  // Set by Service once sandman.json has been read. Until then `action` is only
+  // the "system" default, which must not be mistaken for the user's choice.
+  property bool actionKnown: false
+  property bool presentKnown: false
+  property bool inhibitorEnsureQueued: false
+  readonly property int leaseSeconds: 150
+  readonly property int renewBelowSeconds: 75
 
   readonly property bool managed: action !== "system"
   // Non-power lid actions must also block sleep. logind can emit
@@ -32,6 +47,7 @@ Item {
   // allowing Sandman's Sleep / Hibernate actions to request power transitions.
   readonly property bool inhibitSleepForLid: action === "nothing" || action === "display"
   readonly property string inhibitorWhat: inhibitSleepForLid ? "handle-lid-switch:sleep" : "handle-lid-switch"
+  readonly property string inhibitorFlavour: inhibitSleepForLid ? "sleep" : "lid"
   readonly property bool hibernateAvailable: hibernateCapability === "yes"
   readonly property bool suspendThenHibernateAvailable: suspendThenHibernateCapability === "yes"
 
@@ -46,6 +62,11 @@ Item {
     if (!root.stateKnown) {
       root.closed = next
       root.stateKnown = true
+      // The config can finish loading before the first lid reading arrives
+      // (onActionChanged then skips handleClosed because stateKnown is false).
+      // Apply the display action for an already-closed lid; power actions stay
+      // skipped so a shell start never suspends the computer.
+      if (next && root.action === "display") turnDisplayOff()
       return
     }
     if (root.closed === next) return
@@ -143,21 +164,49 @@ Item {
 
   function ensureMonitorRunning() {
     if (root.managed && root.present) {
-      if (!monitorProcess.running && !root.monitorRestarting) monitorProcess.running = true
+      if (!monitorProcess.running) monitorProcess.running = true
     } else if (monitorProcess.running) {
       monitorProcess.running = false
     }
   }
 
-  function restartMonitor() {
-    if (!monitorProcess.running) {
-      ensureMonitorRunning()
+  // Holds (or renews, or releases) the lid inhibitor in its own systemd unit.
+  // The new lock is taken before the old one is released, so a change of
+  // flavour never leaves a gap either.
+  function ensureInhibitor() {
+    // Never act on a guess. At shell start the config and the lid state load
+    // asynchronously; releasing on the defaults would drop the very lock this
+    // service exists to carry across a restart.
+    if (!root.actionKnown || !root.presentKnown) return
+    if (inhibitorProcess.running) {
+      root.inhibitorEnsureQueued = true
       return
     }
-    root.monitorRestarting = true
-    monitorProcess.running = false
-    monitorRestartTimer.restart()
+    root.inhibitorEnsureQueued = false
+    if (root.managed && root.present) {
+      inhibitorProcess.command = ["sh", "-c", inhibitorEnsureScript, "sandman-lid",
+        root.inhibitorFlavour, root.inhibitorWhat, String(root.leaseSeconds), String(root.renewBelowSeconds)]
+    } else {
+      inhibitorProcess.command = ["sh", "-c", inhibitorReleaseScript, "sandman-lid"]
+    }
+    inhibitorProcess.running = true
   }
+
+  readonly property string inhibitorEnsureScript:
+    'flavour=$1; what=$2; lease=$3; renew=$4; now=$(date +%s); ok=0; '
+    + 'for u in $(systemctl --user list-units --plain --no-legend --state=active "sandman-lid-$flavour-*.service" | cut -d" " -f1); do '
+    + 'exp=${u#sandman-lid-$flavour-}; exp=${exp%.service}; '
+    + '[ "$exp" -gt $((now + renew)) ] 2>/dev/null && ok=1; done; '
+    + 'if [ "$ok" = 0 ]; then '
+    + 'systemd-run --user --quiet --collect --unit="sandman-lid-$flavour-$((now + lease))" -p RuntimeMaxSec="$lease" '
+    + '--description="Sandman lid inhibitor ($what)" '
+    + 'systemd-inhibit --what="$what" --who=Sandman --why="Handle the configured lid-close action" --mode=block sleep infinity || exit 1; fi; '
+    + 'for u in $(systemctl --user list-units --plain --no-legend --state=active "sandman-lid-*.service" | cut -d" " -f1); do '
+    + 'case $u in "sandman-lid-$flavour-"*) ;; *) systemctl --user stop "$u" ;; esac; done; exit 0'
+
+  readonly property string inhibitorReleaseScript:
+    'for u in $(systemctl --user list-units --plain --no-legend --state=active "sandman-lid-*.service" | cut -d" " -f1); do '
+    + 'systemctl --user stop "$u"; done; exit 0'
 
   onActionChanged: {
     if (root.displayOff && root.action !== "display") root.turnDisplayOn()
@@ -165,9 +214,17 @@ Item {
     if (root.stateKnown && root.closed) Qt.callLater(root.handleClosed)
   }
 
-  onInhibitorWhatChanged: restartMonitor()
-  onManagedChanged: ensureMonitorRunning()
-  onPresentChanged: ensureMonitorRunning()
+  // The internal display name resolves asynchronously too; if the lid was
+  // already closed when it arrived empty, apply the display action now.
+  onInternalDisplayChanged: {
+    if (root.stateKnown && root.closed && root.action === "display"
+        && !root.displayOff && root.internalDisplay !== "") turnDisplayOff()
+  }
+
+  onInhibitorWhatChanged: ensureInhibitor()
+  onActionKnownChanged: ensureInhibitor()
+  onManagedChanged: { ensureMonitorRunning(); ensureInhibitor() }
+  onPresentChanged: { ensureMonitorRunning(); ensureInhibitor() }
 
   Process {
     id: capabilityProcess
@@ -177,6 +234,8 @@ Item {
       onStreamFinished: {
         var values = String(text).match(/b\s+(true|false)/g) || []
         root.present = values.length > 0 && values[0].indexOf("true") >= 0
+        root.presentKnown = true
+        root.ensureInhibitor()
         if (values.length > 1) root.applyState(values[1].indexOf("true") >= 0)
       }
     }
@@ -247,13 +306,21 @@ Item {
     }
   }
 
+  // Renews the lease well before it runs out, and brings the lock back if
+  // something stopped it.
   Timer {
-    id: monitorRestartTimer
-    interval: 50
-    repeat: false
-    onTriggered: {
-      root.monitorRestarting = false
-      root.ensureMonitorRunning()
+    interval: 20000
+    repeat: true
+    running: true
+    onTriggered: root.ensureInhibitor()
+  }
+
+  Process {
+    id: inhibitorProcess
+    onExited: function(exitCode) {
+      if (exitCode !== 0 && root.managed && root.present)
+        root.errorOccurred("Could not hold the lid inhibitor")
+      if (root.inhibitorEnsureQueued) Qt.callLater(root.ensureInhibitor)
     }
   }
 
@@ -266,16 +333,16 @@ Item {
 
   Process {
     id: monitorProcess
-    command: ["systemd-inhibit", "--what=" + root.inhibitorWhat, "--who=Sandman", "--why=Handle the configured lid-close action", "--mode=block", "gdbus", "monitor", "--system", "--dest", "org.freedesktop.login1", "--object-path", "/org/freedesktop/login1"]
+    command: ["gdbus", "monitor", "--system", "--dest", "org.freedesktop.login1", "--object-path", "/org/freedesktop/login1"]
     stdout: SplitParser {
       onRead: function(line) {
         if (String(line).indexOf("LidClosed") >= 0) root.scheduleStateQuery()
       }
     }
     onExited: function(exitCode) {
-      if (!root.monitorRestarting && root.managed && root.present && exitCode !== 0)
+      if (root.managed && root.present && exitCode !== 0)
         root.errorOccurred("Could not monitor laptop lid events")
-      if (!root.monitorRestarting) Qt.callLater(root.ensureMonitorRunning)
+      Qt.callLater(root.ensureMonitorRunning)
     }
   }
 

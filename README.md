@@ -49,6 +49,20 @@ The lid controls appear only when UPower reports a laptop lid. **System default*
 
 Sandman stores its state in `~/.config/omarchy/sandman.json`. The effective screen-saver and auto-lock values remain in Omarchy's standard `~/.config/omarchy/shell.json`; lid actions and the displays-off, sleep, and hibernate-after-sleep timers are handled by Sandman itself and are not written there. Changing the hibernate delay asks for administrator authorization because systemd's RTC wake timer is configured system-wide.
 
+### Panel layout
+
+The panel lays its sections out in two columns by default, which fits the whole
+of it — lid action, screen saver, displays off, auto-lock, sleep and
+hibernate-after-sleep — on screen at once. Stacked in one column it is taller
+than a 1080p display, so hibernate ends up below the fold behind a scroll.
+
+Set `panelColumns` on the widget's `shell.json` entry to `1` for the original
+single-column panel, which suits narrow screens and vertical bars:
+
+```jsonc
+{ "id": "lgse.sandman", "panelColumns": 1 }
+```
+
 ## How displays off works
 
 Sandman uses Quickshell's idle monitor with inhibitor support and turns the displays off through Hyprland's `dpms` dispatcher. Applications holding an idle inhibitor can prevent the timer from firing, and any key press or mouse movement turns the displays back on. While Omarchy's **Stay Awake** mode is on, Sandman pauses both the displays-off and sleep timers and cancels any stage already pending; they start a fresh idle period when Stay Awake is turned off.

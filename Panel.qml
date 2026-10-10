@@ -16,6 +16,10 @@ Panel {
   readonly property var barIdentity: hostWidget || root
   readonly property color contentForeground: bar ? bar.foreground : Color.foreground
   readonly property string contentFontFamily: bar ? bar.fontFamily : Style.font.family
+  // How many columns the panel lays its sections out in. Two by default:
+  // stacked, this panel is taller than a 1080p screen. One restores the
+  // original single-column panel for narrow screens and vertical bars.
+  readonly property int panelColumns: Math.max(1, Math.min(2, setting("panelColumns", 2)))
   readonly property int screensaverSeconds: sandmanService ? sandmanService.screensaverSeconds : 150
   readonly property int displaySeconds: sandmanService ? sandmanService.displaySeconds : 0
   readonly property int lockSeconds: sandmanService ? sandmanService.lockSeconds : 300
@@ -215,7 +219,9 @@ Panel {
     bar: root.bar
     open: root.opened
     focusTarget: keyCatcher
-    contentWidth: panel.fittedContentWidth(Style.space(440))
+    contentWidth: panel.fittedContentWidth(
+      Style.space(440) * root.panelColumns
+      + Style.space(16) * (root.panelColumns - 1))
     contentHeight: panel.fittedContentHeight(content.implicitHeight)
 
     PanelKeyCatcher {
@@ -246,681 +252,711 @@ Panel {
           }
         }
 
-        Column {
+        Grid {
           id: content
           width: panelFlick.width
-          spacing: Style.space(12)
+          // One column is the panel as it shipped. Two puts the lid and screen
+          // timers beside the sleep ones, which is the point: stacked, this
+          // panel is taller than a 1080p screen, so hibernate — the setting
+          // most people open this panel to find — sits below the fold.
+          columns: root.panelColumns
+          columnSpacing: Style.space(16)
+          rowSpacing: Style.space(12)
 
-        Row {
-          anchors.horizontalCenter: parent.horizontalCenter
-          spacing: Style.space(14)
-
-          Text {
-            anchors.verticalCenter: parent.verticalCenter
-            text: "󰒲"
-            color: Color.accent
-            font.family: root.contentFontFamily
-            font.pixelSize: Style.space(42)
-          }
+          // Shared out of the width actually granted rather than the width
+          // requested: the card keeps padding of its own, and a column sized
+          // to the request overhangs the edge and is silently clipped.
+          readonly property real columnWidth:
+            Math.floor((width - columnSpacing * (columns - 1)) / columns)
 
           Column {
-            anchors.verticalCenter: parent.verticalCenter
-            spacing: Style.space(2)
+            id: contentLeft
+            width: content.columnWidth
+            spacing: Style.space(12)
+
+          Row {
+            anchors.horizontalCenter: parent.horizontalCenter
+            spacing: Style.space(14)
 
             Text {
-              text: "Sandman"
-              color: root.contentForeground
+              anchors.verticalCenter: parent.verticalCenter
+              text: "󰒲"
+              color: Color.accent
               font.family: root.contentFontFamily
-              font.pixelSize: Style.font.title
-              font.bold: true
+              font.pixelSize: Style.space(42)
+            }
+
+            Column {
+              anchors.verticalCenter: parent.verticalCenter
+              spacing: Style.space(2)
+
+              Text {
+                text: "Sandman"
+                color: root.contentForeground
+                font.family: root.contentFontFamily
+                font.pixelSize: Style.font.title
+                font.bold: true
+              }
+
+              Text {
+                text: Model.statusSummary(root.screensaverSeconds, root.displaySeconds, root.lockSeconds, root.sleepSeconds, root.hibernateSeconds)
+                color: Util.alpha(root.contentForeground, 0.64)
+                font.family: root.contentFontFamily
+                font.pixelSize: Style.font.caption
+              }
+            }
+          }
+
+          PanelSeparator { width: parent.width }
+
+          Column {
+            visible: root.lidPresent
+            width: parent.width
+            spacing: Style.space(7)
+
+            PanelSectionHeader {
+              width: parent.width
+              text: "LID CLOSE"
+              foreground: root.contentForeground
+              fontFamily: root.contentFontFamily
             }
 
             Text {
-              text: Model.statusSummary(root.screensaverSeconds, root.displaySeconds, root.lockSeconds, root.sleepSeconds, root.hibernateSeconds)
+              width: parent.width
+              text: "Choose what happens when the laptop lid closes"
               color: Util.alpha(root.contentForeground, 0.64)
               font.family: root.contentFontFamily
               font.pixelSize: Style.font.caption
             }
-          }
-        }
 
-        PanelSeparator { width: parent.width }
+            Grid {
+              id: lidGrid
+              width: parent.width
+              columns: 3
+              columnSpacing: Style.space(6)
+              rowSpacing: Style.space(6)
 
-        Column {
-          visible: root.lidPresent
-          width: parent.width
-          spacing: Style.space(7)
+              Repeater {
+                model: Model.lidActions
 
-          PanelSectionHeader {
-            width: parent.width
-            text: "LID CLOSE"
-            foreground: root.contentForeground
-            fontFamily: root.contentFontFamily
-          }
-
-          Text {
-            width: parent.width
-            text: "Choose what happens when the laptop lid closes"
-            color: Util.alpha(root.contentForeground, 0.64)
-            font.family: root.contentFontFamily
-            font.pixelSize: Style.font.caption
-          }
-
-          Grid {
-            id: lidGrid
-            width: parent.width
-            columns: 3
-            columnSpacing: Style.space(6)
-            rowSpacing: Style.space(6)
-
-            Repeater {
-              model: Model.lidActions
-
-              Button {
-                required property var modelData
-                width: (lidGrid.width - lidGrid.columnSpacing * 2) / 3
-                text: Model.lidActionLabel(modelData)
-                selected: root.lidAction === String(modelData)
-                enabled: !root.saving
-                  && (String(modelData) !== "hibernate" || root.hibernateAvailable)
-                opacity: enabled ? 1 : 0.38
-                focusable: true
-                bordered: true
-                foreground: root.contentForeground
-                fontFamily: root.contentFontFamily
-                onClicked: root.setLid(String(modelData))
+                Button {
+                  required property var modelData
+                  width: (lidGrid.width - lidGrid.columnSpacing * 2) / 3
+                  text: Model.lidActionLabel(modelData)
+                  selected: root.lidAction === String(modelData)
+                  enabled: !root.saving
+                    && (String(modelData) !== "hibernate" || root.hibernateAvailable)
+                  opacity: enabled ? 1 : 0.38
+                  focusable: true
+                  bordered: true
+                  foreground: root.contentForeground
+                  fontFamily: root.contentFontFamily
+                  onClicked: root.setLid(String(modelData))
+                }
               }
             }
           }
-        }
 
-        PanelSeparator {
-          visible: root.lidPresent
-          width: parent.width
-        }
-
-        Column {
-          width: parent.width
-          spacing: Style.space(7)
-
-          PanelSectionHeader {
+          PanelSeparator {
+            visible: root.lidPresent
             width: parent.width
-            text: "SCREEN SAVER"
-            foreground: root.contentForeground
-            fontFamily: root.contentFontFamily
           }
 
-          Text {
+          Column {
             width: parent.width
-            text: "Start after inactivity"
-            color: Util.alpha(root.contentForeground, 0.64)
-            font.family: root.contentFontFamily
-            font.pixelSize: Style.font.caption
-          }
+            spacing: Style.space(7)
 
-          Grid {
-            id: screensaverGrid
-            width: parent.width
-            columns: 4
-            columnSpacing: Style.space(6)
-            rowSpacing: Style.space(6)
+            PanelSectionHeader {
+              width: parent.width
+              text: "SCREEN SAVER"
+              foreground: root.contentForeground
+              fontFamily: root.contentFontFamily
+            }
 
-            Repeater {
-              model: Model.screensaverPresets
+            Text {
+              width: parent.width
+              text: "Start after inactivity"
+              color: Util.alpha(root.contentForeground, 0.64)
+              font.family: root.contentFontFamily
+              font.pixelSize: Style.font.caption
+            }
+
+            Grid {
+              id: screensaverGrid
+              width: parent.width
+              columns: 4
+              columnSpacing: Style.space(6)
+              rowSpacing: Style.space(6)
+
+              Repeater {
+                model: Model.screensaverPresets
+
+                Button {
+                  required property var modelData
+                  width: (screensaverGrid.width - screensaverGrid.columnSpacing * 3) / 4
+                  text: Model.formatDuration(modelData)
+                  selected: !root.customEditorOpen
+                    && root.screensaverSeconds === Number(modelData)
+                  enabled: !root.saving
+                  focusable: true
+                  bordered: true
+                  foreground: root.contentForeground
+                  fontFamily: root.contentFontFamily
+                  onClicked: root.selectScreensaverPreset(Number(modelData))
+                }
+              }
 
               Button {
-                required property var modelData
                 width: (screensaverGrid.width - screensaverGrid.columnSpacing * 3) / 4
-                text: Model.formatDuration(modelData)
-                selected: !root.customEditorOpen
-                  && root.screensaverSeconds === Number(modelData)
+                text: "Custom"
+                selected: root.customEditorOpen || !root.screensaverUsesPreset
                 enabled: !root.saving
                 focusable: true
                 bordered: true
                 foreground: root.contentForeground
                 fontFamily: root.contentFontFamily
-                onClicked: root.selectScreensaverPreset(Number(modelData))
+                onClicked: root.openCustomEditor()
               }
             }
 
-            Button {
-              width: (screensaverGrid.width - screensaverGrid.columnSpacing * 3) / 4
-              text: "Custom"
-              selected: root.customEditorOpen || !root.screensaverUsesPreset
-              enabled: !root.saving
-              focusable: true
-              bordered: true
-              foreground: root.contentForeground
-              fontFamily: root.contentFontFamily
-              onClicked: root.openCustomEditor()
-            }
-          }
+            Row {
+              visible: root.customEditorOpen
+              width: parent.width
+              spacing: Style.space(8)
 
-          Row {
-            visible: root.customEditorOpen
-            width: parent.width
-            spacing: Style.space(8)
+              NumberField {
+                label: "Hours"
+                value: root.customHours
+                from: 0
+                to: 24
+                fieldWidth: Style.space(104)
+                foreground: root.contentForeground
+                fontFamily: root.contentFontFamily
+                onModified: function(value) { root.customHours = value }
+              }
 
-            NumberField {
-              label: "Hours"
-              value: root.customHours
-              from: 0
-              to: 24
-              fieldWidth: Style.space(104)
-              foreground: root.contentForeground
-              fontFamily: root.contentFontFamily
-              onModified: function(value) { root.customHours = value }
-            }
-
-            NumberField {
-              label: "Minutes"
-              value: root.customMinutes
-              from: 0
-              to: 59
-              fieldWidth: Style.space(104)
-              foreground: root.contentForeground
-              fontFamily: root.contentFontFamily
-              onModified: function(value) { root.customMinutes = value }
-            }
-
-            Button {
-              anchors.bottom: parent.bottom
-              width: parent.width - x
-              text: "Apply"
-              enabled: !root.saving && root.customTimeoutSeconds > 0
-              focusable: true
-              bordered: true
-              foreground: root.contentForeground
-              fontFamily: root.contentFontFamily
-              onClicked: root.applyCustomTimeout()
-            }
-          }
-
-          Text {
-            visible: root.screensaverSeconds > 0
-              && root.lockSeconds > 0
-              && root.lockSeconds <= root.screensaverSeconds
-            width: parent.width
-            text: "Auto-lock is set before the screen saver can appear."
-            color: Color.urgent
-            font.family: root.contentFontFamily
-            font.pixelSize: Style.font.caption
-            wrapMode: Text.WordWrap
-          }
-        }
-
-        PanelSeparator { width: parent.width }
-
-        Column {
-          width: parent.width
-          spacing: Style.space(7)
-
-          PanelSectionHeader {
-            width: parent.width
-            text: "DISPLAYS OFF"
-            foreground: root.contentForeground
-            fontFamily: root.contentFontFamily
-          }
-
-          Text {
-            width: parent.width
-            text: "Turn off the displays after inactivity"
-            color: Util.alpha(root.contentForeground, 0.64)
-            font.family: root.contentFontFamily
-            font.pixelSize: Style.font.caption
-          }
-
-          Grid {
-            id: displayGrid
-            width: parent.width
-            columns: 4
-            columnSpacing: Style.space(6)
-            rowSpacing: Style.space(6)
-
-            Repeater {
-              model: Model.displayPresets
+              NumberField {
+                label: "Minutes"
+                value: root.customMinutes
+                from: 0
+                to: 59
+                fieldWidth: Style.space(104)
+                foreground: root.contentForeground
+                fontFamily: root.contentFontFamily
+                onModified: function(value) { root.customMinutes = value }
+              }
 
               Button {
-                required property var modelData
+                anchors.bottom: parent.bottom
+                width: parent.width - x
+                text: "Apply"
+                enabled: !root.saving && root.customTimeoutSeconds > 0
+                focusable: true
+                bordered: true
+                foreground: root.contentForeground
+                fontFamily: root.contentFontFamily
+                onClicked: root.applyCustomTimeout()
+              }
+            }
+
+            Text {
+              visible: root.screensaverSeconds > 0
+                && root.lockSeconds > 0
+                && root.lockSeconds <= root.screensaverSeconds
+              width: parent.width
+              text: "Auto-lock is set before the screen saver can appear."
+              color: Color.urgent
+              font.family: root.contentFontFamily
+              font.pixelSize: Style.font.caption
+              wrapMode: Text.WordWrap
+            }
+          }
+
+          PanelSeparator { width: parent.width }
+
+          Column {
+            width: parent.width
+            spacing: Style.space(7)
+
+            PanelSectionHeader {
+              width: parent.width
+              text: "DISPLAYS OFF"
+              foreground: root.contentForeground
+              fontFamily: root.contentFontFamily
+            }
+
+            Text {
+              width: parent.width
+              text: "Turn off the displays after inactivity"
+              color: Util.alpha(root.contentForeground, 0.64)
+              font.family: root.contentFontFamily
+              font.pixelSize: Style.font.caption
+            }
+
+            Grid {
+              id: displayGrid
+              width: parent.width
+              columns: 4
+              columnSpacing: Style.space(6)
+              rowSpacing: Style.space(6)
+
+              Repeater {
+                model: Model.displayPresets
+
+                Button {
+                  required property var modelData
+                  width: (displayGrid.width - displayGrid.columnSpacing * 3) / 4
+                  text: Model.formatDuration(modelData)
+                  selected: !root.customDisplayEditorOpen
+                    && root.displaySeconds === Number(modelData)
+                  enabled: !root.saving
+                  focusable: true
+                  bordered: true
+                  foreground: root.contentForeground
+                  fontFamily: root.contentFontFamily
+                  onClicked: root.selectDisplayPreset(Number(modelData))
+                }
+              }
+
+              Button {
                 width: (displayGrid.width - displayGrid.columnSpacing * 3) / 4
-                text: Model.formatDuration(modelData)
-                selected: !root.customDisplayEditorOpen
-                  && root.displaySeconds === Number(modelData)
+                text: "Custom"
+                selected: root.customDisplayEditorOpen || !root.displayUsesPreset
                 enabled: !root.saving
                 focusable: true
                 bordered: true
                 foreground: root.contentForeground
                 fontFamily: root.contentFontFamily
-                onClicked: root.selectDisplayPreset(Number(modelData))
+                onClicked: root.openCustomDisplayEditor()
               }
             }
 
-            Button {
-              width: (displayGrid.width - displayGrid.columnSpacing * 3) / 4
-              text: "Custom"
-              selected: root.customDisplayEditorOpen || !root.displayUsesPreset
-              enabled: !root.saving
-              focusable: true
-              bordered: true
-              foreground: root.contentForeground
-              fontFamily: root.contentFontFamily
-              onClicked: root.openCustomDisplayEditor()
-            }
-          }
+            Row {
+              visible: root.customDisplayEditorOpen
+              width: parent.width
+              spacing: Style.space(8)
 
-          Row {
-            visible: root.customDisplayEditorOpen
-            width: parent.width
-            spacing: Style.space(8)
+              NumberField {
+                label: "Hours"
+                value: root.customDisplayHours
+                from: 0
+                to: 24
+                fieldWidth: Style.space(104)
+                foreground: root.contentForeground
+                fontFamily: root.contentFontFamily
+                onModified: function(value) { root.customDisplayHours = value }
+              }
 
-            NumberField {
-              label: "Hours"
-              value: root.customDisplayHours
-              from: 0
-              to: 24
-              fieldWidth: Style.space(104)
-              foreground: root.contentForeground
-              fontFamily: root.contentFontFamily
-              onModified: function(value) { root.customDisplayHours = value }
-            }
-
-            NumberField {
-              label: "Minutes"
-              value: root.customDisplayMinutes
-              from: 0
-              to: 59
-              fieldWidth: Style.space(104)
-              foreground: root.contentForeground
-              fontFamily: root.contentFontFamily
-              onModified: function(value) { root.customDisplayMinutes = value }
-            }
-
-            Button {
-              anchors.bottom: parent.bottom
-              width: parent.width - x
-              text: "Apply"
-              enabled: !root.saving && root.customDisplayTimeoutSeconds > 0
-              focusable: true
-              bordered: true
-              foreground: root.contentForeground
-              fontFamily: root.contentFontFamily
-              onClicked: root.applyCustomDisplayTimeout()
-            }
-          }
-
-          Text {
-            visible: root.screensaverSeconds > 0
-              && root.displaySeconds > 0
-              && root.displaySeconds <= root.screensaverSeconds
-            width: parent.width
-            text: "Displays turn off before the screen saver can appear."
-            color: Color.urgent
-            font.family: root.contentFontFamily
-            font.pixelSize: Style.font.caption
-            wrapMode: Text.WordWrap
-          }
-        }
-
-        PanelSeparator { width: parent.width }
-
-        Column {
-          width: parent.width
-          spacing: Style.space(7)
-
-          PanelSectionHeader {
-            width: parent.width
-            text: "AUTO-LOCK"
-            foreground: root.contentForeground
-            fontFamily: root.contentFontFamily
-          }
-
-          Text {
-            width: parent.width
-            text: "Lock the session after inactivity"
-            color: Util.alpha(root.contentForeground, 0.64)
-            font.family: root.contentFontFamily
-            font.pixelSize: Style.font.caption
-          }
-
-          Grid {
-            id: lockGrid
-            width: parent.width
-            columns: 4
-            columnSpacing: Style.space(6)
-            rowSpacing: Style.space(6)
-
-            Repeater {
-              model: Model.lockPresets
+              NumberField {
+                label: "Minutes"
+                value: root.customDisplayMinutes
+                from: 0
+                to: 59
+                fieldWidth: Style.space(104)
+                foreground: root.contentForeground
+                fontFamily: root.contentFontFamily
+                onModified: function(value) { root.customDisplayMinutes = value }
+              }
 
               Button {
-                required property var modelData
+                anchors.bottom: parent.bottom
+                width: parent.width - x
+                text: "Apply"
+                enabled: !root.saving && root.customDisplayTimeoutSeconds > 0
+                focusable: true
+                bordered: true
+                foreground: root.contentForeground
+                fontFamily: root.contentFontFamily
+                onClicked: root.applyCustomDisplayTimeout()
+              }
+            }
+
+            Text {
+              visible: root.screensaverSeconds > 0
+                && root.displaySeconds > 0
+                && root.displaySeconds <= root.screensaverSeconds
+              width: parent.width
+              text: "Displays turn off before the screen saver can appear."
+              color: Color.urgent
+              font.family: root.contentFontFamily
+              font.pixelSize: Style.font.caption
+              wrapMode: Text.WordWrap
+            }
+          }
+
+          }
+
+          Column {
+            id: contentRight
+            width: content.columnWidth
+            spacing: Style.space(12)
+
+            PanelSeparator {
+              width: parent.width
+              // Stacked, this rule separates the timers above from the ones
+              // below. Side by side there is nothing above it to separate.
+              visible: root.panelColumns === 1
+            }
+
+          Column {
+            width: parent.width
+            spacing: Style.space(7)
+
+            PanelSectionHeader {
+              width: parent.width
+              text: "AUTO-LOCK"
+              foreground: root.contentForeground
+              fontFamily: root.contentFontFamily
+            }
+
+            Text {
+              width: parent.width
+              text: "Lock the session after inactivity"
+              color: Util.alpha(root.contentForeground, 0.64)
+              font.family: root.contentFontFamily
+              font.pixelSize: Style.font.caption
+            }
+
+            Grid {
+              id: lockGrid
+              width: parent.width
+              columns: 4
+              columnSpacing: Style.space(6)
+              rowSpacing: Style.space(6)
+
+              Repeater {
+                model: Model.lockPresets
+
+                Button {
+                  required property var modelData
+                  width: (lockGrid.width - lockGrid.columnSpacing * 3) / 4
+                  text: Model.formatDuration(modelData)
+                  selected: !root.customLockEditorOpen
+                    && root.lockSeconds === Number(modelData)
+                  enabled: !root.saving
+                  focusable: true
+                  bordered: true
+                  foreground: root.contentForeground
+                  fontFamily: root.contentFontFamily
+                  onClicked: root.selectLockPreset(Number(modelData))
+                }
+              }
+
+              Button {
                 width: (lockGrid.width - lockGrid.columnSpacing * 3) / 4
-                text: Model.formatDuration(modelData)
-                selected: !root.customLockEditorOpen
-                  && root.lockSeconds === Number(modelData)
+                text: "Custom"
+                selected: root.customLockEditorOpen || !root.lockUsesPreset
                 enabled: !root.saving
                 focusable: true
                 bordered: true
                 foreground: root.contentForeground
                 fontFamily: root.contentFontFamily
-                onClicked: root.selectLockPreset(Number(modelData))
+                onClicked: root.openCustomLockEditor()
               }
             }
 
-            Button {
-              width: (lockGrid.width - lockGrid.columnSpacing * 3) / 4
-              text: "Custom"
-              selected: root.customLockEditorOpen || !root.lockUsesPreset
-              enabled: !root.saving
-              focusable: true
-              bordered: true
-              foreground: root.contentForeground
-              fontFamily: root.contentFontFamily
-              onClicked: root.openCustomLockEditor()
-            }
-          }
+            Row {
+              visible: root.customLockEditorOpen
+              width: parent.width
+              spacing: Style.space(8)
 
-          Row {
-            visible: root.customLockEditorOpen
-            width: parent.width
-            spacing: Style.space(8)
+              NumberField {
+                label: "Hours"
+                value: root.customLockHours
+                from: 0
+                to: 24
+                fieldWidth: Style.space(104)
+                foreground: root.contentForeground
+                fontFamily: root.contentFontFamily
+                onModified: function(value) { root.customLockHours = value }
+              }
 
-            NumberField {
-              label: "Hours"
-              value: root.customLockHours
-              from: 0
-              to: 24
-              fieldWidth: Style.space(104)
-              foreground: root.contentForeground
-              fontFamily: root.contentFontFamily
-              onModified: function(value) { root.customLockHours = value }
-            }
-
-            NumberField {
-              label: "Minutes"
-              value: root.customLockMinutes
-              from: 0
-              to: 59
-              fieldWidth: Style.space(104)
-              foreground: root.contentForeground
-              fontFamily: root.contentFontFamily
-              onModified: function(value) { root.customLockMinutes = value }
-            }
-
-            Button {
-              anchors.bottom: parent.bottom
-              width: parent.width - x
-              text: "Apply"
-              enabled: !root.saving && root.customLockTimeoutSeconds > 0
-              focusable: true
-              bordered: true
-              foreground: root.contentForeground
-              fontFamily: root.contentFontFamily
-              onClicked: root.applyCustomLockTimeout()
-            }
-          }
-        }
-
-        PanelSeparator { width: parent.width }
-
-        Column {
-          width: parent.width
-          spacing: Style.space(7)
-
-          PanelSectionHeader {
-            width: parent.width
-            text: "SLEEP"
-            foreground: root.contentForeground
-            fontFamily: root.contentFontFamily
-          }
-
-          Text {
-            width: parent.width
-            text: "Suspend the computer after inactivity"
-            color: Util.alpha(root.contentForeground, 0.64)
-            font.family: root.contentFontFamily
-            font.pixelSize: Style.font.caption
-          }
-
-          Grid {
-            id: sleepGrid
-            width: parent.width
-            columns: 4
-            columnSpacing: Style.space(6)
-            rowSpacing: Style.space(6)
-
-            Repeater {
-              model: Model.sleepPresets
+              NumberField {
+                label: "Minutes"
+                value: root.customLockMinutes
+                from: 0
+                to: 59
+                fieldWidth: Style.space(104)
+                foreground: root.contentForeground
+                fontFamily: root.contentFontFamily
+                onModified: function(value) { root.customLockMinutes = value }
+              }
 
               Button {
-                required property var modelData
+                anchors.bottom: parent.bottom
+                width: parent.width - x
+                text: "Apply"
+                enabled: !root.saving && root.customLockTimeoutSeconds > 0
+                focusable: true
+                bordered: true
+                foreground: root.contentForeground
+                fontFamily: root.contentFontFamily
+                onClicked: root.applyCustomLockTimeout()
+              }
+            }
+          }
+
+          PanelSeparator { width: parent.width }
+
+          Column {
+            width: parent.width
+            spacing: Style.space(7)
+
+            PanelSectionHeader {
+              width: parent.width
+              text: "SLEEP"
+              foreground: root.contentForeground
+              fontFamily: root.contentFontFamily
+            }
+
+            Text {
+              width: parent.width
+              text: "Suspend the computer after inactivity"
+              color: Util.alpha(root.contentForeground, 0.64)
+              font.family: root.contentFontFamily
+              font.pixelSize: Style.font.caption
+            }
+
+            Grid {
+              id: sleepGrid
+              width: parent.width
+              columns: 4
+              columnSpacing: Style.space(6)
+              rowSpacing: Style.space(6)
+
+              Repeater {
+                model: Model.sleepPresets
+
+                Button {
+                  required property var modelData
+                  width: (sleepGrid.width - sleepGrid.columnSpacing * 3) / 4
+                  text: Model.formatDuration(modelData)
+                  selected: !root.customSleepEditorOpen
+                    && root.sleepSeconds === Number(modelData)
+                  enabled: !root.saving
+                  focusable: true
+                  bordered: true
+                  foreground: root.contentForeground
+                  fontFamily: root.contentFontFamily
+                  onClicked: root.selectSleepPreset(Number(modelData))
+                }
+              }
+
+              Button {
                 width: (sleepGrid.width - sleepGrid.columnSpacing * 3) / 4
-                text: Model.formatDuration(modelData)
-                selected: !root.customSleepEditorOpen
-                  && root.sleepSeconds === Number(modelData)
+                text: "Custom"
+                selected: root.customSleepEditorOpen || !root.sleepUsesPreset
                 enabled: !root.saving
                 focusable: true
                 bordered: true
                 foreground: root.contentForeground
                 fontFamily: root.contentFontFamily
-                onClicked: root.selectSleepPreset(Number(modelData))
+                onClicked: root.openCustomSleepEditor()
               }
             }
 
-            Button {
-              width: (sleepGrid.width - sleepGrid.columnSpacing * 3) / 4
-              text: "Custom"
-              selected: root.customSleepEditorOpen || !root.sleepUsesPreset
-              enabled: !root.saving
-              focusable: true
-              bordered: true
-              foreground: root.contentForeground
-              fontFamily: root.contentFontFamily
-              onClicked: root.openCustomSleepEditor()
-            }
-          }
+            Row {
+              visible: root.customSleepEditorOpen
+              width: parent.width
+              spacing: Style.space(8)
 
-          Row {
-            visible: root.customSleepEditorOpen
-            width: parent.width
-            spacing: Style.space(8)
+              NumberField {
+                label: "Hours"
+                value: root.customSleepHours
+                from: 0
+                to: 24
+                fieldWidth: Style.space(104)
+                foreground: root.contentForeground
+                fontFamily: root.contentFontFamily
+                onModified: function(value) { root.customSleepHours = value }
+              }
 
-            NumberField {
-              label: "Hours"
-              value: root.customSleepHours
-              from: 0
-              to: 24
-              fieldWidth: Style.space(104)
-              foreground: root.contentForeground
-              fontFamily: root.contentFontFamily
-              onModified: function(value) { root.customSleepHours = value }
-            }
-
-            NumberField {
-              label: "Minutes"
-              value: root.customSleepMinutes
-              from: 0
-              to: 59
-              fieldWidth: Style.space(104)
-              foreground: root.contentForeground
-              fontFamily: root.contentFontFamily
-              onModified: function(value) { root.customSleepMinutes = value }
-            }
-
-            Button {
-              anchors.bottom: parent.bottom
-              width: parent.width - x
-              text: "Apply"
-              enabled: !root.saving && root.customSleepTimeoutSeconds > 0
-              focusable: true
-              bordered: true
-              foreground: root.contentForeground
-              fontFamily: root.contentFontFamily
-              onClicked: root.applyCustomSleepTimeout()
-            }
-          }
-
-          Text {
-            visible: root.screensaverSeconds > 0
-              && root.sleepSeconds > 0
-              && root.sleepSeconds <= root.screensaverSeconds
-            width: parent.width
-            text: "Sleep is set before the screen saver can appear."
-            color: Color.urgent
-            font.family: root.contentFontFamily
-            font.pixelSize: Style.font.caption
-            wrapMode: Text.WordWrap
-          }
-        }
-
-        PanelSeparator { width: parent.width }
-
-        Column {
-          width: parent.width
-          spacing: Style.space(7)
-
-          PanelSectionHeader {
-            width: parent.width
-            text: "HIBERNATE AFTER SLEEP"
-            foreground: root.contentForeground
-            fontFamily: root.contentFontFamily
-          }
-
-          Text {
-            width: parent.width
-            text: "Wake from suspend and hibernate after this delay"
-            color: Util.alpha(root.contentForeground, 0.64)
-            font.family: root.contentFontFamily
-            font.pixelSize: Style.font.caption
-          }
-
-          Grid {
-            id: hibernateGrid
-            width: parent.width
-            columns: 4
-            columnSpacing: Style.space(6)
-            rowSpacing: Style.space(6)
-
-            Repeater {
-              model: Model.hibernatePresets
+              NumberField {
+                label: "Minutes"
+                value: root.customSleepMinutes
+                from: 0
+                to: 59
+                fieldWidth: Style.space(104)
+                foreground: root.contentForeground
+                fontFamily: root.contentFontFamily
+                onModified: function(value) { root.customSleepMinutes = value }
+              }
 
               Button {
-                required property var modelData
+                anchors.bottom: parent.bottom
+                width: parent.width - x
+                text: "Apply"
+                enabled: !root.saving && root.customSleepTimeoutSeconds > 0
+                focusable: true
+                bordered: true
+                foreground: root.contentForeground
+                fontFamily: root.contentFontFamily
+                onClicked: root.applyCustomSleepTimeout()
+              }
+            }
+
+            Text {
+              visible: root.screensaverSeconds > 0
+                && root.sleepSeconds > 0
+                && root.sleepSeconds <= root.screensaverSeconds
+              width: parent.width
+              text: "Sleep is set before the screen saver can appear."
+              color: Color.urgent
+              font.family: root.contentFontFamily
+              font.pixelSize: Style.font.caption
+              wrapMode: Text.WordWrap
+            }
+          }
+
+          PanelSeparator { width: parent.width }
+
+          Column {
+            width: parent.width
+            spacing: Style.space(7)
+
+            PanelSectionHeader {
+              width: parent.width
+              text: "HIBERNATE AFTER SLEEP"
+              foreground: root.contentForeground
+              fontFamily: root.contentFontFamily
+            }
+
+            Text {
+              width: parent.width
+              text: "Wake from suspend and hibernate after this delay"
+              color: Util.alpha(root.contentForeground, 0.64)
+              font.family: root.contentFontFamily
+              font.pixelSize: Style.font.caption
+            }
+
+            Grid {
+              id: hibernateGrid
+              width: parent.width
+              columns: 4
+              columnSpacing: Style.space(6)
+              rowSpacing: Style.space(6)
+
+              Repeater {
+                model: Model.hibernatePresets
+
+                Button {
+                  required property var modelData
+                  width: (hibernateGrid.width - hibernateGrid.columnSpacing * 3) / 4
+                  text: Model.formatDuration(modelData)
+                  selected: !root.customHibernateEditorOpen
+                    && root.hibernateSeconds === Number(modelData)
+                  enabled: !root.saving && (Number(modelData) === 0
+                    || root.suspendThenHibernateAvailable)
+                  opacity: enabled ? 1 : 0.38
+                  focusable: true
+                  bordered: true
+                  foreground: root.contentForeground
+                  fontFamily: root.contentFontFamily
+                  onClicked: root.selectHibernatePreset(Number(modelData))
+                }
+              }
+
+              Button {
                 width: (hibernateGrid.width - hibernateGrid.columnSpacing * 3) / 4
-                text: Model.formatDuration(modelData)
-                selected: !root.customHibernateEditorOpen
-                  && root.hibernateSeconds === Number(modelData)
-                enabled: !root.saving && (Number(modelData) === 0
-                  || root.suspendThenHibernateAvailable)
+                text: "Custom"
+                selected: root.customHibernateEditorOpen || !root.hibernateUsesPreset
+                enabled: !root.saving && root.suspendThenHibernateAvailable
                 opacity: enabled ? 1 : 0.38
                 focusable: true
                 bordered: true
                 foreground: root.contentForeground
                 fontFamily: root.contentFontFamily
-                onClicked: root.selectHibernatePreset(Number(modelData))
+                onClicked: root.openCustomHibernateEditor()
               }
             }
 
-            Button {
-              width: (hibernateGrid.width - hibernateGrid.columnSpacing * 3) / 4
-              text: "Custom"
-              selected: root.customHibernateEditorOpen || !root.hibernateUsesPreset
+            Row {
+              visible: root.customHibernateEditorOpen
+              width: parent.width
+              spacing: Style.space(8)
               enabled: !root.saving && root.suspendThenHibernateAvailable
               opacity: enabled ? 1 : 0.38
-              focusable: true
-              bordered: true
-              foreground: root.contentForeground
-              fontFamily: root.contentFontFamily
-              onClicked: root.openCustomHibernateEditor()
+
+              NumberField {
+                label: "Hours"
+                value: root.customHibernateHours
+                from: 0
+                to: 24
+                fieldWidth: Style.space(104)
+                foreground: root.contentForeground
+                fontFamily: root.contentFontFamily
+                onModified: function(value) { root.customHibernateHours = value }
+              }
+
+              NumberField {
+                label: "Minutes"
+                value: root.customHibernateMinutes
+                from: 0
+                to: 59
+                fieldWidth: Style.space(104)
+                foreground: root.contentForeground
+                fontFamily: root.contentFontFamily
+                onModified: function(value) { root.customHibernateMinutes = value }
+              }
+
+              Button {
+                anchors.bottom: parent.bottom
+                width: parent.width - x
+                text: "Apply"
+                enabled: !root.saving && root.suspendThenHibernateAvailable
+                  && root.customHibernateTimeoutSeconds > 0
+                focusable: true
+                bordered: true
+                foreground: root.contentForeground
+                fontFamily: root.contentFontFamily
+                onClicked: root.applyCustomHibernateTimeout()
+              }
+            }
+
+            Text {
+              visible: !root.suspendThenHibernateAvailable
+              width: parent.width
+              text: "Suspend then hibernate is not available on this computer. "
+                + (root.hibernateDiagnostic !== ""
+                  ? root.hibernateDiagnostic
+                  : "Check swap, kernel resume configuration, and firmware support.")
+              color: Color.urgent
+              font.family: root.contentFontFamily
+              font.pixelSize: Style.font.caption
+              wrapMode: Text.WordWrap
+            }
+
+            Text {
+              visible: root.hibernateSeconds > 0 && root.sleepSeconds === 0
+              width: parent.width
+              text: "Enable Sleep for automatic hibernation after inactivity."
+              color: Color.urgent
+              font.family: root.contentFontFamily
+              font.pixelSize: Style.font.caption
+              wrapMode: Text.WordWrap
+            }
+
+            Text {
+              visible: root.hibernateSeconds > 0
+              width: parent.width
+              text: "Changing this delay requires administrator authorization."
+              color: Util.alpha(root.contentForeground, 0.64)
+              font.family: root.contentFontFamily
+              font.pixelSize: Style.font.caption
+              wrapMode: Text.WordWrap
             }
           }
 
-          Row {
-            visible: root.customHibernateEditorOpen
-            width: parent.width
-            spacing: Style.space(8)
-            enabled: !root.saving && root.suspendThenHibernateAvailable
-            opacity: enabled ? 1 : 0.38
-
-            NumberField {
-              label: "Hours"
-              value: root.customHibernateHours
-              from: 0
-              to: 24
-              fieldWidth: Style.space(104)
-              foreground: root.contentForeground
-              fontFamily: root.contentFontFamily
-              onModified: function(value) { root.customHibernateHours = value }
+            Text {
+              visible: root.sandmanService && root.sandmanService.lastError !== ""
+              width: parent.width
+              text: root.sandmanService ? root.sandmanService.lastError : ""
+              color: Color.urgent
+              font.family: root.contentFontFamily
+              font.pixelSize: Style.font.caption
+              horizontalAlignment: Text.AlignHCenter
+              wrapMode: Text.WordWrap
             }
-
-            NumberField {
-              label: "Minutes"
-              value: root.customHibernateMinutes
-              from: 0
-              to: 59
-              fieldWidth: Style.space(104)
-              foreground: root.contentForeground
-              fontFamily: root.contentFontFamily
-              onModified: function(value) { root.customHibernateMinutes = value }
-            }
-
-            Button {
-              anchors.bottom: parent.bottom
-              width: parent.width - x
-              text: "Apply"
-              enabled: !root.saving && root.suspendThenHibernateAvailable
-                && root.customHibernateTimeoutSeconds > 0
-              focusable: true
-              bordered: true
-              foreground: root.contentForeground
-              fontFamily: root.contentFontFamily
-              onClicked: root.applyCustomHibernateTimeout()
-            }
-          }
-
-          Text {
-            visible: !root.suspendThenHibernateAvailable
-            width: parent.width
-            text: "Suspend then hibernate is not available on this computer. "
-              + (root.hibernateDiagnostic !== ""
-                ? root.hibernateDiagnostic
-                : "Check swap, kernel resume configuration, and firmware support.")
-            color: Color.urgent
-            font.family: root.contentFontFamily
-            font.pixelSize: Style.font.caption
-            wrapMode: Text.WordWrap
-          }
-
-          Text {
-            visible: root.hibernateSeconds > 0 && root.sleepSeconds === 0
-            width: parent.width
-            text: "Enable Sleep for automatic hibernation after inactivity."
-            color: Color.urgent
-            font.family: root.contentFontFamily
-            font.pixelSize: Style.font.caption
-            wrapMode: Text.WordWrap
-          }
-
-          Text {
-            visible: root.hibernateSeconds > 0
-            width: parent.width
-            text: "Changing this delay requires administrator authorization."
-            color: Util.alpha(root.contentForeground, 0.64)
-            font.family: root.contentFontFamily
-            font.pixelSize: Style.font.caption
-            wrapMode: Text.WordWrap
-          }
-        }
-
-          Text {
-            visible: root.sandmanService && root.sandmanService.lastError !== ""
-            width: parent.width
-            text: root.sandmanService ? root.sandmanService.lastError : ""
-            color: Color.urgent
-            font.family: root.contentFontFamily
-            font.pixelSize: Style.font.caption
-            horizontalAlignment: Text.AlignHCenter
-            wrapMode: Text.WordWrap
           }
         }
       }

@@ -16,6 +16,7 @@ Item {
   property string hibernateDiagnostic: ""
   property bool suspendPending: false
   property int pendingHibernateSeconds: 0
+  property bool configLoaded: false
   property bool displaysOff: false
   property bool idleCycleRunning: false
   property bool idleMonitorRearming: false
@@ -295,6 +296,7 @@ Item {
   LidService {
     id: lidService
     action: root.lidAction
+    actionKnown: root.configLoaded
     hibernateAfterSleep: root.hibernateSeconds > 0
     helperPath: root.helperPath
     onErrorOccurred: function(message) { root.lastError = message }
@@ -361,7 +363,8 @@ Item {
     path: root.configPath
     watchChanges: true
     printErrors: false
-    onLoaded: root.configState = Model.parseConfig(text())
+    onLoaded: { root.configState = Model.parseConfig(text()); root.configLoaded = true }
+    onLoadFailed: root.configLoaded = true
     onFileChanged: reload()
   }
 

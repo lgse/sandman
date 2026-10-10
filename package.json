@@ -1,6 +1,6 @@
 {
   "name": "sandman",
-  "version": "0.9.3",
+  "version": "0.9.4",
   "private": true,
   "description": "Set lid-close actions and when your screen rests, locks, sleeps, and hibernates.",
   "scripts": {

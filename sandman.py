@@ -435,11 +435,8 @@ def hibernate_diagnostics() -> dict[str, Any]:
 
 
 def removable_gpus() -> list[str]:
-    """Return DRM cards whose PCI device sits behind a removable port.
-
-    The kernel marks devices behind Thunderbolt/USB4 external ports as
-    removable, which identifies eGPUs without depending on bus numbers.
-    """
+    """The kernel marks PCI devices behind Thunderbolt/USB4 external ports as
+    removable, which identifies eGPUs without depending on bus numbers."""
     drm = diagnostic_path("SANDMAN_DRM_CLASS_PATH", "/sys/class/drm")
     try:
         cards = sorted(drm.glob("card*/device/removable"))
@@ -456,13 +453,8 @@ def removable_gpus() -> list[str]:
 
 
 def sleep_action(hibernate_after_sleep: bool, gpus: list[str]) -> str:
-    """Choose the systemctl verb for Sleep.
-
-    eGPUs rarely survive hibernation: the hibernated kernel resumes against a
-    freshly re-tunneled USB4 link and can hang or reset the machine. While one
-    is attached, plain suspend keeps the low-power state without the timed
-    hibernate, including when the eGPU is unplugged while suspended.
-    """
+    """eGPUs can hang or reset the machine when resuming from hibernation, so
+    skip the timed hibernate while one is attached."""
     return "suspend-then-hibernate" if hibernate_after_sleep and not gpus else "suspend"
 
 

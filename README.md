@@ -59,6 +59,8 @@ Sandman uses Quickshell's idle monitor with inhibitor support and requests suspe
 
 When **Hibernate after sleep** is enabled, Sandman instead requests `systemctl suspend-then-hibernate`. systemd sets an RTC wake alarm, wakes after the chosen delay, and hibernates. Sandman stores the delay in `/etc/systemd/sleep.conf.d/90-sandman.conf`; changing or disabling it requires administrator authorization. The option is available only when logind reports that suspend-then-hibernate is supported. When it is unavailable, Sandman disables the positive timeout choices and reports any prerequisite it can detect, including missing disk-backed swap, missing kernel hibernation support, missing resume discovery, or restrictive kernel lockdown. **Off** remains available so an old setting can always be cleared.
 
+While an external GPU is attached (a DRM device the kernel marks as removable, such as a Thunderbolt/USB4 eGPU), Sandman requests plain `systemctl suspend` instead of suspend-then-hibernate. eGPUs can fail to resume from hibernation and can hang or reset the computer; plain suspend keeps the low-power state and stays safe if the eGPU is unplugged while the computer is asleep.
+
 ## Requirements
 
 - Omarchy Quattro

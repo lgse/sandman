@@ -434,6 +434,42 @@ def hibernate_diagnostics() -> dict[str, Any]:
     }
 
 
+def removable_gpus() -> list[str]:
+    """The kernel marks PCI devices behind Thunderbolt/USB4 external ports as
+    removable, which identifies eGPUs without depending on bus numbers."""
+    drm = diagnostic_path("SANDMAN_DRM_CLASS_PATH", "/sys/class/drm")
+    try:
+        cards = sorted(drm.glob("card*/device/removable"))
+    except OSError:
+        return []
+    found = []
+    for removable in cards:
+        try:
+            if removable.read_text(encoding="utf-8").strip() == "removable":
+                found.append(removable.parent.parent.name)
+        except OSError:
+            continue
+    return found
+
+
+def sleep_action(hibernate_after_sleep: bool, gpus: list[str]) -> str:
+    """eGPUs can hang or reset the machine when resuming from hibernation, so
+    skip the timed hibernate while one is attached."""
+    return "suspend-then-hibernate" if hibernate_after_sleep and not gpus else "suspend"
+
+
+def request_sleep(hibernate_after_sleep: bool) -> int:
+    gpus = removable_gpus()
+    action = sleep_action(hibernate_after_sleep, gpus)
+    if hibernate_after_sleep and gpus:
+        print(
+            f"sandman: removable GPU attached ({', '.join(gpus)}); suspending without hibernation",
+            file=sys.stderr,
+        )
+    systemctl = os.environ.get("SANDMAN_SYSTEMCTL", "systemctl")
+    return subprocess.run([systemctl, action], check=False).returncode
+
+
 def configure_hibernate(value: int) -> None:
     """Set systemd's suspend-then-hibernate delay.
 
@@ -505,11 +541,15 @@ def parser() -> argparse.ArgumentParser:
     configure_hibernate_parser.add_argument("seconds", type=timeout)
     lid = commands.add_parser("set-lid")
     lid.add_argument("action", choices=LID_ACTIONS)
+    sleep_now = commands.add_parser("sleep")
+    sleep_now.add_argument("--hibernate-after", action="store_true")
     return result
 
 
 def main() -> int:
     args = parser().parse_args()
+    if args.command == "sleep":
+        return request_sleep(args.hibernate_after)
     try:
         if args.command == "init":
             config = initialize()

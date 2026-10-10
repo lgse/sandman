@@ -2,13 +2,18 @@ import QtQuick
 import Quickshell
 import qs.Ui
 import "Model.js" as Model
+import "bridge" as SandmanBridge
 
 BarWidget {
   id: root
   moduleName: "lgse.sandman"
 
-  readonly property var sandmanService: bar && bar.shell
-    ? bar.shell.serviceFor("lgse.sandman") : null
+  // Replacement bars cannot resolve services through bar.shell; see bridge/Bridge.qml.
+  readonly property var sandmanService: {
+    var viaHost = bar && bar.shell && typeof bar.shell.serviceFor === "function"
+      ? bar.shell.serviceFor("lgse.sandman") : null
+    return viaHost || SandmanBridge.Bridge.service
+  }
   readonly property bool opened: panelLoader.item ? panelLoader.item.opened === true : false
   readonly property bool popoutSwitchClosing: panelLoader.item
     ? panelLoader.item.popoutSwitchClosing === true : false

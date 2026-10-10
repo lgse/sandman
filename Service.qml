@@ -21,9 +21,15 @@ Item {
   property bool idleMonitorRearming: false
   property var screensaverWindows: ({})
   property int screensaverWindowCount: 0
+  property bool stayAwake: false
+  property bool stayAwakeStateLoaded: false
 
   readonly property string home: Quickshell.env("HOME")
   readonly property string configPath: home + "/.config/omarchy/sandman.json"
+  // Omarchy's Stay Awake toggle (and clones of its idle service) persist the
+  // mode as this flag file; it is the shared contract between idle services.
+  readonly property string stayAwakeStateDir: home + "/.local/state/omarchy/indicators"
+  readonly property string stayAwakeStatePath: stayAwakeStateDir + "/stay-awake"
   readonly property string screensaverClass: "org.omarchy.screensaver"
   readonly property int screensaverSeconds: Model.normalizedSeconds(configState.screensaver, 150, true)
   readonly property int displaySeconds: Model.normalizedSeconds(configState.display, 0, true)
@@ -42,8 +48,10 @@ Item {
   readonly property bool sleepEnabled: sleepSeconds > 0
   // The screensaver, display-off, and sleep stages are all self-observed here so
   // the cycle can survive the screensaver's brief activity blip (see below). The
-  // shared monitor fires at the earliest of the enabled stage boundaries.
-  readonly property bool cycleEnabled: displayEnabled || sleepEnabled
+  // shared monitor fires at the earliest of the enabled stage boundaries. Stay
+  // Awake pauses the whole cycle, and nothing runs until its state is known.
+  readonly property bool idleAllowed: stayAwakeStateLoaded && !stayAwake
+  readonly property bool cycleEnabled: idleAllowed && (displayEnabled || sleepEnabled)
   readonly property int firstIdleSeconds: {
     if (!cycleEnabled) return 1
     var candidates = []
@@ -189,6 +197,15 @@ Item {
     }
   }
 
+  function refreshStayAwakeState() {
+    if (!stayAwakeProbe.running) stayAwakeProbe.running = true
+  }
+
+  function applyStayAwake(value) {
+    root.stayAwake = !!value
+    root.stayAwakeStateLoaded = true
+  }
+
   function startIdleCycle() {
     if (!root.cycleEnabled || root.idleCycleRunning) return
     resolveLockService()
@@ -238,13 +255,14 @@ Item {
   Component.onCompleted: {
     SandmanBridge.Bridge.service = root
     resolveLockService()
+    refreshStayAwakeState()
   }
 
   // A reloaded instance may already have published itself.
   Component.onDestruction: if (SandmanBridge.Bridge.service === root) SandmanBridge.Bridge.service = null
 
   function turnDisplaysOff() {
-    if (!root.displayEnabled || displayOffProcess.running) return
+    if (!root.displayEnabled || !root.idleAllowed || displayOffProcess.running) return
     root.displaysOff = true
     root.lastError = ""
     displayOffProcess.running = true
@@ -257,7 +275,7 @@ Item {
   }
 
   function requestSuspend() {
-    if (!root.sleepEnabled || suspendProcess.running) return
+    if (!root.sleepEnabled || !root.idleAllowed || suspendProcess.running) return
     root.suspendPending = true
     root.lastError = ""
     suspendProcess.command = ["python3", root.helperPath, "sleep"]
@@ -271,6 +289,8 @@ Item {
   onScreensaverSecondsChanged: rearmIdleMonitor()
   onDisplaySecondsChanged: rearmIdleMonitor()
   onSleepSecondsChanged: rearmIdleMonitor()
+  // Toggling Stay Awake cancels any pending stage and starts a fresh idle period.
+  onCycleEnabledChanged: rearmIdleMonitor()
 
   LidService {
     id: lidService
@@ -343,6 +363,34 @@ Item {
     printErrors: false
     onLoaded: root.configState = Model.parseConfig(text())
     onFileChanged: reload()
+  }
+
+  Process {
+    id: stayAwakeProbe
+    // Create the directory so the watcher below has something to watch.
+    command: ["sh", "-c", "mkdir -p \"$1\" && test -e \"$2\"", "sh",
+      root.stayAwakeStateDir, root.stayAwakeStatePath]
+    onExited: function(exitCode) {
+      root.applyStayAwake(exitCode === 0)
+      stayAwakeDirWatcher.reload()
+    }
+  }
+
+  // Watch the directory: the flag file itself is created and deleted.
+  FileView {
+    id: stayAwakeDirWatcher
+    path: root.stayAwakeStateDir
+    watchChanges: true
+    printErrors: false
+    onFileChanged: root.refreshStayAwakeState()
+  }
+
+  // Fallback for missed watch events, e.g. if the directory is recreated.
+  Timer {
+    interval: 30000
+    repeat: true
+    running: true
+    onTriggered: root.refreshStayAwakeState()
   }
 
   IdleMonitor {
@@ -454,6 +502,9 @@ Item {
         hibernateDiagnostic: root.hibernateDiagnostic,
         idle: idleMonitor.isIdle,
         sessionLocked: root.sessionLocked,
+        stayAwake: root.stayAwake,
+        stayAwakeStateLoaded: root.stayAwakeStateLoaded,
+        idleMonitoringEnabled: root.cycleEnabled,
         idleCycleRunning: root.idleCycleRunning,
         displayDelay: root.displayDelaySeconds,
         displaysOff: root.displaysOff,

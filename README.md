@@ -51,11 +51,11 @@ Sandman stores its state in `~/.config/omarchy/sandman.json`. The effective scre
 
 ## How displays off works
 
-Sandman uses Quickshell's idle monitor with inhibitor support and turns the displays off through Hyprland's `dpms` dispatcher. Applications holding an idle inhibitor can prevent the timer from firing, and any key press or mouse movement turns the displays back on.
+Sandman uses Quickshell's idle monitor with inhibitor support and turns the displays off through Hyprland's `dpms` dispatcher. Applications holding an idle inhibitor can prevent the timer from firing, and any key press or mouse movement turns the displays back on. While Omarchy's **Stay Awake** mode is on, Sandman pauses both the displays-off and sleep timers and cancels any stage already pending; they start a fresh idle period when Stay Awake is turned off.
 
 ## How sleep and hibernate work
 
-Sandman uses Quickshell's idle monitor with inhibitor support and requests suspend through `systemctl suspend`. Applications holding an idle inhibitor can prevent the timer from firing, and system-level sleep inhibitors can reject the suspend request.
+Sandman uses Quickshell's idle monitor with inhibitor support and requests suspend through `systemctl suspend`. Applications holding an idle inhibitor can prevent the timer from firing, and system-level sleep inhibitors can reject the suspend request. Omarchy's **Stay Awake** mode pauses this timer too.
 
 When **Hibernate after sleep** is enabled, Sandman instead requests `systemctl suspend-then-hibernate`. systemd sets an RTC wake alarm, wakes after the chosen delay, and hibernates. Sandman stores the delay in `/etc/systemd/sleep.conf.d/90-sandman.conf`; changing or disabling it requires administrator authorization. The option is available only when logind reports that suspend-then-hibernate is supported. When it is unavailable, Sandman disables the positive timeout choices and reports any prerequisite it can detect, including missing disk-backed swap, missing kernel hibernation support, missing resume discovery, or restrictive kernel lockdown. **Off** remains available so an old setting can always be cleared.
 

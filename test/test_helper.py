@@ -322,7 +322,9 @@ class SleepActionTest(unittest.TestCase):
             **os.environ,
             "SANDMAN_DRM_CLASS_PATH": str(self.drm),
             "SANDMAN_SYSTEMCTL": "echo",
+            "SANDMAN_BUSCTL": str(Path(self.temporary.name) / "busctl"),
         }
+        self.set_capability("yes")
 
     def tearDown(self):
         self.temporary.cleanup()
@@ -331,6 +333,11 @@ class SleepActionTest(unittest.TestCase):
         device = self.drm / name / "device"
         device.mkdir(parents=True)
         (device / "removable").write_text(f"{removable}\n", encoding="utf-8")
+
+    def set_capability(self, answer):
+        busctl = Path(self.environment["SANDMAN_BUSCTL"])
+        busctl.write_text(f'#!/bin/sh\necho \'s "{answer}"\'\n', encoding="utf-8")
+        busctl.chmod(0o755)
 
     def sleep(self, *arguments):
         completed = subprocess.run(
@@ -353,6 +360,14 @@ class SleepActionTest(unittest.TestCase):
 
     def test_plain_suspend_when_hibernate_after_sleep_is_off(self):
         self.assertEqual(self.sleep(), "suspend")
+
+    def test_plain_suspend_while_logind_cannot_hibernate(self):
+        self.set_capability("na")
+        self.assertEqual(self.sleep("--hibernate-after"), "suspend")
+
+    def test_plain_suspend_when_capability_query_fails(self):
+        self.environment["SANDMAN_BUSCTL"] = str(Path(self.temporary.name) / "missing")
+        self.assertEqual(self.sleep("--hibernate-after"), "suspend")
 
     def test_missing_drm_class_does_not_block_hibernate(self):
         self.environment["SANDMAN_DRM_CLASS_PATH"] = str(self.drm / "missing")

@@ -61,6 +61,8 @@ When **Hibernate after sleep** is enabled, Sandman instead requests `systemctl s
 
 While an external GPU is attached (a DRM device the kernel marks as removable, such as a Thunderbolt/USB4 eGPU), Sandman requests plain `systemctl suspend` instead of suspend-then-hibernate. eGPUs can fail to resume from hibernation and can hang or reset the computer; plain suspend keeps the low-power state and stays safe if the eGPU is unplugged while the computer is asleep.
 
+Sandman also falls back to plain suspend when logind reports at that moment that it cannot suspend-then-hibernate. The kernel disables hibernation while any process holds `memfd_secret` memory (the Bitwarden desktop app does), and logind then refuses suspend-then-hibernate outright, which would otherwise leave the computer awake after the lid closes.
+
 ## Requirements
 
 - Omarchy Quattro

@@ -452,18 +452,48 @@ def removable_gpus() -> list[str]:
     return found
 
 
-def sleep_action(hibernate_after_sleep: bool, gpus: list[str]) -> str:
+def suspend_then_hibernate_capability() -> str:
+    """Ask logind now rather than trusting the shell's startup answer.
+
+    Hibernation can come and go while the shell runs: the kernel disables it
+    while any process holds memfd_secret memory (Bitwarden's desktop app does),
+    and logind then answers "na" until that process exits.
+    """
+    busctl = os.environ.get("SANDMAN_BUSCTL", "busctl")
+    try:
+        completed = subprocess.run(
+            [busctl, "call", "org.freedesktop.login1", "/org/freedesktop/login1",
+             "org.freedesktop.login1.Manager", "CanSuspendThenHibernate"],
+            check=False, text=True, capture_output=True, timeout=5,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return "unknown"
+    match = re.search(r'"([^"]+)"', completed.stdout)
+    return match.group(1) if completed.returncode == 0 and match else "unknown"
+
+
+def sleep_action(hibernate_after_sleep: bool, gpus: list[str], capability: str = "yes") -> str:
     """eGPUs can hang or reset the machine when resuming from hibernation, so
-    skip the timed hibernate while one is attached."""
-    return "suspend-then-hibernate" if hibernate_after_sleep and not gpus else "suspend"
+    skip the timed hibernate while one is attached. logind refuses
+    suspend-then-hibernate outright when it cannot hibernate, which would leave
+    the computer awake, so fall back to plain suspend then too."""
+    if hibernate_after_sleep and not gpus and capability == "yes":
+        return "suspend-then-hibernate"
+    return "suspend"
 
 
 def request_sleep(hibernate_after_sleep: bool) -> int:
     gpus = removable_gpus()
-    action = sleep_action(hibernate_after_sleep, gpus)
+    capability = suspend_then_hibernate_capability() if hibernate_after_sleep and not gpus else "yes"
+    action = sleep_action(hibernate_after_sleep, gpus, capability)
     if hibernate_after_sleep and gpus:
         print(
             f"sandman: removable GPU attached ({', '.join(gpus)}); suspending without hibernation",
+            file=sys.stderr,
+        )
+    elif hibernate_after_sleep and capability != "yes":
+        print(
+            f"sandman: suspend-then-hibernate unavailable ({capability}); suspending without hibernation",
             file=sys.stderr,
         )
     systemctl = os.environ.get("SANDMAN_SYSTEMCTL", "systemctl")

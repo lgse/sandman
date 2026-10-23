@@ -128,16 +128,11 @@ Item {
       return
     }
     root.powerAction = requestedAction
-    var effectiveAction = requestedAction === "suspend" && root.hibernateAfterSleep
-      ? "suspend-then-hibernate" : requestedAction
-    if (effectiveAction === "suspend-then-hibernate" && !root.suspendThenHibernateAvailable) {
-      root.errorOccurred("Suspend then hibernate is not available on this computer")
-      return
-    }
-    // The helper falls back to plain suspend while an eGPU is attached.
-    powerProcess.command = effectiveAction === "suspend-then-hibernate"
-      ? ["python3", root.helperPath, "sleep", "--hibernate-after"]
-      : ["systemctl", effectiveAction]
+    // The helper falls back to plain suspend while an eGPU is attached or
+    // logind cannot hibernate right now, so closing the lid always sleeps.
+    powerProcess.command = requestedAction === "suspend"
+      ? ["python3", root.helperPath, "sleep"].concat(root.hibernateAfterSleep ? ["--hibernate-after"] : [])
+      : ["systemctl", requestedAction]
     powerProcess.running = true
   }
 
